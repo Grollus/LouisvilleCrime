@@ -1,7 +1,8 @@
 # library(data.table)
 library(dplyr)
-library(ggplot2)
 library(ggmap)
+library(ggplot2)
+library(leaflet)
 library(grid)
 library(RColorBrewer)
 # Read data in from csv
