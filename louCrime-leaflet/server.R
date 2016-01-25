@@ -4,68 +4,78 @@ shinyServer(function(input, output){
   #
   # With leaflet, I am not sure if this is necessary, but for filtering data to a 
   # quickly plottable level it is the best option I can think of right now
-  louisville_map <- reactive({
-    data.frame(geocode(paste0(input$location, "Louisville, KY"), source = "google"))
-  })
+#   louisville_map <- eventReactive(input$update,{
+#     data.frame(geocode(paste0(input$location, "Louisville, KY"), source = "google"))
+#   })
   
-  # Creating a reactive google map so I can grab bounding box coordinates. 
-  # Not elegant, but I am not sure how to filter the data by location otherwise.
-  # map itself is not used.
-  
-  map_for_bb_coords <- reactive({
-    temp_map <- louisville_map()
-    bb_map <- get_map(location = as.matrix(temp_map), source = "google")
-    bb_map
-  })
-  
-  # Filtering Crime Data
+   # Filtering Crime Data
   crime <- reactive({
     
-    #extracting boundaries from google map element
-    temp_map <- isolate(map_for_bb_coords())
-    bounds <- attr(temp_map, 'bb')
-  
-    # Applying filters
+   # Applying filters
     c <- louCrime %>%
       filter(
-        year_occured >= input$year[1],
-        year_occured <= input$year[2]
+        year_occured ==input$year
       )
     
     # Location based filtering
-    if(input$location == "Louisville"){
-      c
-    }else if(input$location %in% c$zip_code){
-      c <- c %>% filter(zip_code == input$location)
-    }else{
-      c <- c %>% filter(lat >= bounds$ll.lat &
-                        lat <= bounds$ur.lat &
-                        lng >= bounds$ll.lon &
-                        lng <= bounds$ur.lon)
-    }
+    # Filtering results by those that fall in the bounding box of the current map 
+    # turned out to be quite difficult
+    # It is something I still want to do, but I am not sure how.
     
+#     if(input$location %in% c$zip_code){
+#       c <- c %>% filter(zip_code == input$location)
+#     }
+    
+    # Optional: Filtering by Crime Type
+    ifelse(is.null(input$crime) == TRUE, c,
+           ifelse(input$crime == 'All', c, c <- c %>% filter(crime_type %in% input$crime)))
+    
+    # Optional: Filter by month
+    ifelse(is.null(input$month) == TRUE, c,
+           ifelse(input$month == 'All', c, c <- c %>% filter(month_occured == input$month)))
+    
+    # Optional: Filter by weekday
+    ifelse(is.null(input$weekday) == TRUE, c,
+           ifelse(input$weekday == 'All', c, c <- c %>% filter(weekday == input$weekday)))
+    
+    # Optional: Filter by Premise
+    ifelse(is.null(input$premise) == TRUE, c,
+           ifelse(input$premise == 'All', c, c <- c %>% filter(premise_type %in% input$premise)))
     c <- as.data.frame(c)
-    
-    # Leaflet markers only really work well(without tinkering) when points < 100,000
-    # check the number of points in the data frame and if above threshold, randomly
-    # sample the data to plot
-    if(nrow(c) > 80000){
-      c <- sample_n(c, 80000, replace = FALSE)
-    }
-    
     c
     })
+    
   
-  
-  
+
   output$map <- renderLeaflet({
-    louisville <- louisville_map()
+#     louisville <- louisville_map()
+#     
+#     if(input$location == 'Louisville'){
+#       leaflet()%>%
+#         setView(lng = louisville[1], lat = louisville[2], zoom = 12)%>%
+#         addTiles()%>%
+#         addMarkers(data = crime(),
+#                    popup = crime()$uor_desc,
+#                    clusterOptions = markerClusterOptions()
+#         )
+#     }else{
+#       leaflet()%>%
+#         setView(lng = louisville[1], lat = louisville[2], zoom = 14)%>%
+#         addTiles()%>%
+#         addMarkers(data = crime(),
+#                    popup = crime()$uor_desc,
+#                    clusterOptions = markerClusterOptions()
+#         )
+#     }
+    louisville <- geocode("Louisville", source = "google")
+    
     leaflet()%>%
-      setView(lng = louisville[1], lat = louisville[2], zoom = 12)%>%
+      setView(lng = louisville[1], lat = louisville[2], zoom = 13)%>%
       addTiles()%>%
       addMarkers(data = crime(),
-        clusterOptions = markerClusterOptions()
-      )
+                 popup = crime()$uor_desc,
+                 clusterOptions = markerClusterOptions())
+    
   })
   
   # Display of Selected Data -- showing only data currently displayed in the Map Tab
@@ -75,6 +85,12 @@ shinyServer(function(input, output){
     
     display_crime %>%
       select(date_occured, premise_type, full_address, uor_desc, offense = nibrs_offenses)
-  }, options = list(lengthMenu = list(c(15, 30), c('15', '30')), pageLength = 15))
+  }, options = list(pageLength = 10, lengthMenu = c(10, 20), lengthChange =TRUE, autoWidth = TRUE))
   
-})
+  output$n_crimes <- renderText({
+    displayed.crimes <- nrow(crime())
+    paste0(displayed.crimes, " crimes displayed for the selected metrics.")
+  })
+  
+  
+ })
