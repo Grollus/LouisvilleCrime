@@ -67,4 +67,4 @@ crime_lou <- crime_lou %>%
 
 #----------------------------------------------------------------------------------
 # Write this data set out to be used in other scripts
-write.csv(crime_lou, file = "crime_lou_with_geocoding.csv")
+write.csv(crime_lou, file = "crime_lou_with_geocoding.csv", row.names = FALSE)
