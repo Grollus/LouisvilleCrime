@@ -50,7 +50,12 @@ missing_coords <- crime_lou %>%
 # Below I load the temporary geocoding file and merge it into the full dataset
 geocoded_small1 <- readRDS("input_temp_geocoded.rds")
 geocoded_small2 <- readRDS("input_temp_geocoded2.rds")
-geocoded_small_merged <- rbind(geocoded_small1, geocoded_small2)%>%
+geocoded_small3 <- readRDS("input_temp_geocoded3.rds")
+geocoded_small4 <- readRDS("input_temp_geocoded4.rds")
+geocoded_small5 <- readRDS("input_temp_geocoded5.rds")
+
+geocoded_small_merged <- rbind(geocoded_small1, geocoded_small2, geocoded_small3,
+                               geocoded_small4, geocoded_small5)%>%
   select(supplied_address, lat, lng)
 names(geocoded_small_merged)[names(geocoded_small_merged) == "supplied_address"] <- "full_address"
 
