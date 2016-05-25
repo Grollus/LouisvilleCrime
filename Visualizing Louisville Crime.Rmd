@@ -1,0 +1,419 @@
+---
+title: "Is Louisville Crime on the Rise"
+output: pdf_document
+---
+
+# Introduction
+Over the past year I have gotten used to the constant flow of crime reports littering
+the local news. Whether it was riots, teens running rampant or a record number of homicides,
+it seemed Louisville's citizenry was spiraling out of control.  But the more I saw, 
+the more I began to wonder--is crime really getting worse?  Is it no longer safe to walk
+the streets? Or is there no difference at all?  Today, I aim to find out.
+
+Luckily, the city of Louisville has a rich open crime dataset that is ripe for analysis.
+Although records extend back to the 1920's, the data is very sparse up until around
+2004.  For the purposes of this investigation, I will look at 2005-2015. 
+
+# Overview of All Crime Incidents
+
+My initial approach was just to look at overall crime distribution throughout the city.
+As can be seen below, there is a definite hot spot in downtown and a lesser one near Shively
+between I-264 and I-65. Of course, the next logical question, is has this base view changed
+over the past 11 years.
+```{r package_load, cache = TRUE, echo = FALSE, message=FALSE, warning = FALSE}
+#Loading all packages necessary for report
+library(stringi)
+library(dplyr)
+library(ggplot2)
+library(ggmap)
+library(readr)
+library(printr)
+library(viridis)
+library(gridExtra)
+```
+
+```{r, load_data, echo = FALSE, cache = TRUE, warning = FALSE, message = FALSE}
+# since most data cleaning was done outside this report, all I have to do here is
+# create any useful additional variables and load the file
+raw_data <- read_csv("crime_lou_with_geocoding.csv")
+
+create_date_variables <- function(df){
+  require(lubridate)
+  # Uses the POSIXct date_occured variable to create useful date related
+  # subvariables
+  df$year <- year(df$date_occured)
+  df$month <- month(df$date_occured)
+  df$day <- day(df$date_occured)
+  df$hour <- hour(df$date_occured)
+  df$year_month <- paste(df$year, df$month, sep = '-')
+  df$day_of_week <- wday(df$date_occured, label = TRUE, abbr = FALSE)
+  df$weekday <- ifelse(df$day_of_week == "Saturday" | df$day_of_week == "Sunday", 
+                              "Weekend", "Weekday")
+  
+  return(df)
+}
+
+crime_lou <- create_date_variables(raw_data)
+```
+
+```{r full_crime_plot, echo = FALSE, cache = TRUE, out.width = "1100px", warning = FALSE, message = FALSE}
+density.theme <- base.theme <- 
+  theme(axis.text = element_blank(), axis.ticks = element_blank())+
+  theme(legend.title = element_text(size = 14, family = 'serif', face = 'bold', color = "#666666"))+
+  theme(plot.title = element_text(size = 22, family = "serif", face = 'bold', hjust = 0, color = "#666666"))+
+  theme(axis.title = element_blank())
+
+bar.theme <- 
+  theme(legend.position = "none")+
+  theme(plot.title = element_text(size = 22, family = "serif", face = 'bold', hjust = 0, color = "#666666"))+
+  theme(axis.title = element_text(size = 18, family = "serif", face = 'bold', hjust = 0, color = "#666666"))+
+  theme(axis.title.y = element_text(angle = 90))+
+  theme(axis.title.x = element_text(hjust = 0, vjust = 0.5))
+
+  
+crime_lou <- crime_lou%>%
+  filter(year <=2015 & year >=2005 & !is.na(lat)  & !is.na(lng))
+
+louisvilleMap <- get_map(location = c(lon = -85.686028, lat = 38.181602), source = "google",
+                       maptype = 'roadmap', color = 'bw', zoom = 11)
+
+ggmap(louisvilleMap)+
+  stat_bin2d(
+    aes(x = lng, y = lat),
+    data = crime_lou,
+    size = .00001, bins = 50, alpha = .8, color = "gray20"
+  )+
+  scale_fill_viridis(option = "inferno", name = "Incident Count")+
+  ggtitle("Louisville Crime, 2005-2015")+
+  density.theme
+```
+
+As we can see here, the distribution of crimes has stayed roughly constant over the years.
+```{r full_crime_yearly, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
+ggmap(louisvilleMap)+
+  stat_bin2d(
+    aes(x = lng, y = lat),
+    data = crime_lou,
+    size = .00001, bins = 50, alpha = .8, color = "gray20"
+  )+
+  scale_fill_viridis(option = "inferno", name = "Incident Count")+
+  ggtitle("Louisville Crime, By Year")+
+  facet_wrap(~year)+
+  density.theme
+```
+
+Looked at another way, the raw incidence reports appear to peak around 2009, but have since
+leveled off.  While it does appear there is an upward trend, more analysis is needed before
+drawing any conclusions.
+```{r full_crime_bar, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
+crime_lou %>%
+  group_by(year)%>%
+  summarise(count = n())%>%
+  ggplot(aes(x = year, y = count))+
+  stat_smooth(method = 'lm', size = 1.25, alpha = .8, fill = "grey", colour = "black")+
+  geom_bar(stat = 'identity', colour = "black",fill = "darkblue",  alpha = .7)+
+  ggtitle("Incident Count by Year")+
+  labs(x = "Year", y = "Incident Count")+
+  scale_x_discrete(limits = seq(2005, 2015, by = 1))+
+  bar.theme
+```
+
+
+# Violent Crime
+
+In order to really see how crime in the city has changed, I need to break it down by
+crime type. With all the talk of record homicide numbers in 2015, I decided to start 
+with violent crime. There are four offenses the FBI considers violent crime -- murder and 
+nonnegligent manslaughter, forcible rape, robbery and aggravated assault.  Looking at the 
+aggregate, a minor increase is apparent.
+
+```{r violent_crime_full, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
+crime_lou%>%
+  filter(nibrs_code == '13a' |nibrs_code == '120'| nibrs_code == '09a'|nibrs_code == '11a')%>%
+  group_by(year)%>%
+  summarise(count = n())%>%
+  ggplot(aes(x = year, y = count))+
+  stat_smooth(method = 'lm', size = 1.25, alpha = .8, fill = "grey", colour = "black")+
+  geom_bar(stat = 'identity', colour = "black",fill = "darkblue",  alpha = .7)+
+  ggtitle("Violent Crime By Year")+
+  labs(x = "Year", y = "Incident Count")+
+  scale_x_discrete(limits = seq(2005, 2015, by = 1))+
+  bar.theme
+
+```
+
+But a more fine grained view shows that the story is a little more complicated.  While 
+homicide and assaults are indeed up, rape and robberies are down.
+```{r violent_crime_by_year, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
+crime_lou%>%
+  filter(nibrs_code == '09a'|nibrs_code == '11a')%>%
+  group_by(year, crime_type)%>%
+  summarise(count = n())%>%
+  ggplot(aes(x = year, y = count))+
+  stat_smooth(method = 'lm', size = 1.25, alpha = .8, fill = "grey", colour = "black")+
+  geom_bar(stat = 'identity', colour = "black",fill = "darkblue",  alpha = .7)+
+  facet_wrap(~crime_type)+
+  ggtitle("Homicide and Rape Incidents")+
+  labs(x = "Year", y = "Incident Count")+
+  scale_x_discrete(limits = seq(2005, 2015, by = 1))+
+  bar.theme
+
+crime_lou%>%
+  filter(nibrs_code == '13a'|nibrs_code == '120')%>%
+  group_by(year, crime_type)%>%
+  summarise(count = n())%>%
+  ggplot(aes(x = year, y = count))+
+  stat_smooth(method = 'lm', size = 1.25, alpha = .8, fill = "grey", colour = "black")+
+  geom_bar(stat = 'identity', colour = "black",fill = "darkblue",  alpha = .7)+
+  facet_wrap(~crime_type)+
+  ggtitle("Aggravated Assault and Robbery Incidents")+
+  labs(x = "Year", y = "Incident Count")+
+  scale_x_discrete(limits = seq(2005, 2015, by = 1))+
+  bar.theme
+```
+
+```{r, violent_crime_percentage_changes, cache = TRUE, echo = FALSE}
+violent_sum_df <- crime_lou%>%
+  filter(nibrs_code == '13a' |nibrs_code == '120'| nibrs_code == '09a'|nibrs_code == '11a')%>%
+  group_by(year, crime_type)%>%
+  summarise(count = n())
+
+
+vio_per_changes <- violent_sum_df%>%
+  group_by(crime_type)%>%
+  mutate(Change_from_2014 = paste0(round(100*((count /lag(count))-1), 1), "%"),
+         Change_from_Max = paste0(round(100*((count /max(count))-1), 1), "%"),
+         Change_from_Median = paste0(round(100*((count /median(count))-1), 1), "%"))%>%
+  filter(year == 2015)%>%
+  select(crime_type, Change_from_2014, Change_from_Max, Change_from_Median)
+
+all_vio_sum <- crime_lou%>%
+  filter(nibrs_code == '13a' |nibrs_code == '120'| nibrs_code == '09a'|nibrs_code == '11a')%>%
+  group_by(year)%>%
+  summarise(count = n())
+
+
+all_vio_changes <- all_vio_sum%>%
+  mutate(crime_type = 'all',
+         Change_from_2014 = paste0(round(100*((count /lag(count))-1), 1), "%"),
+         Change_from_Max = paste0(round(100*((count /max(count))-1), 1), "%"),
+         Change_from_Median = paste0(round(100*((count /median(count))-1), 1), "%"))%>%
+  filter(year == 2015)%>%
+  select(crime_type, Change_from_2014, Change_from_Max, Change_from_Median)
+  
+all_vio_changes <- rbind(all_vio_changes, vio_per_changes)
+
+all_vio_changes
+```
+
+
+Looking at the distribution of the violent crimes, you see the family hot spots in downtown
+and near Shively.
+
+```{r violent_crime_distribution, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
+mapData <- crime_lou%>%
+  filter(nibrs_code == '13a' |nibrs_code == '120'| nibrs_code == '09a'|nibrs_code == '11a'& 
+           !is.na(lat)  & !is.na(lng))
+  
+ggmap(louisvilleMap)+
+  stat_bin2d(
+    aes(x = lng, y = lat),
+    data = mapData,
+    size = .00001, bins = 75, alpha = .8, color = "gray20"
+  )+
+  scale_fill_viridis(option = "inferno", name = "Incident Count")+
+  ggtitle("Violent Crime, 2005-2015")+
+  density.theme
+
+density.theme <- base.theme <- 
+  theme(axis.text = element_blank(), axis.ticks = element_blank())+
+  theme(legend.title = element_text(size = 14, family = 'serif', face = 'bold', color = "#666666"))+
+  theme(plot.title = element_text(size = 18, family = "serif", face = 'bold', hjust = 0, color = "#666666"))+
+  theme(axis.title = element_blank())
+
+p1 <- ggmap(louisvilleMap)+
+  stat_bin2d(
+    aes(x = lng, y = lat),
+    data = mapData%>%filter(nibrs_code == '13a'),
+    size = .00001, bins = 40, alpha = .8, color = "gray20"
+  )+
+  ggtitle("Distribution of Assaults")+
+  scale_fill_viridis(option = "inferno", name = "Incident Count")+
+  density.theme
+
+p2 <- ggmap(louisvilleMap)+
+  stat_bin2d(
+    aes(x = lng, y = lat),
+    data = mapData%>%filter(nibrs_code == '120'),
+    size = .00001, bins = 40, alpha = .8, color = "gray20"
+  )+
+  ggtitle("Distribution of Robberies")+
+  scale_fill_viridis(option = "inferno", name = "Incident Count")+
+  density.theme
+
+p3 <- ggmap(louisvilleMap)+
+  stat_bin2d(
+    aes(x = lng, y = lat),
+    data = mapData%>%filter(nibrs_code == '09a'),
+    size = .00001, bins = 40, alpha = .8, color = "gray20"
+  )+
+  ggtitle("Distribution of Homicides")+
+  scale_fill_viridis(option = "inferno", name = "Incident Count")+
+  density.theme
+
+p4 <- ggmap(louisvilleMap)+
+  stat_bin2d(
+    aes(x = lng, y = lat),
+    data = mapData%>%filter(nibrs_code == '11a'),
+    size = .00001, bins = 40, alpha = .8, color = "gray20"
+  )+
+  ggtitle("Distribution of Rapes")+
+  scale_fill_viridis(option = "inferno", name = "Incident Count")+
+  density.theme
+
+grid.arrange(p1, p2, p3, p4, ncol = 2)
+```
+
+# Theft Crimes
+What about if we focus solely on theft related offenses?  Do we see the same sort of 
+distribution and trend, or have these property crimes become more prevalent or 
+more widely dispersed?
+
+
+Again, I start by looking at the aggregate of all theft related crimes.  This includes 
+burglary, motor vehicle theft, and 8 other subcategories of theft/larceny.  As you can see,
+there is a slight upward trend, but overall, 2015 appears to be a typical year in Louisville
+vis-a-vis thefts.
+```{r theft_crime_full, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
+crime_lou%>%
+  # filter(nibrs_code == '240'|nibrs_code == '23a'|nibrs_code =='23b'|nibrs_code == '23c'|
+  #          nibrs_code == '23d'|nibrs_code =='23e'|nibrs_code == '23f'|nibrs_code == '23g'|
+  #          nibrs_code == '23h'|nibrs_code == '220')
+  filter(crime_type == 'motor vehicle theft'|crime_type == 'theft/larceny'|crime_type == 'burglary'|
+           crime_type == 'vehicle break-in/theft')%>%
+  group_by(year)%>%
+  summarise(count = n())%>%
+  ggplot(aes(x = year, y = count))+
+  stat_smooth(method = 'lm', size = 1.25, alpha = .8, fill = "grey", colour = "black")+
+  geom_bar(stat = 'identity', colour = "black",fill = "darkblue",  alpha = .7)+
+  ggtitle("Thefts By Year")+
+  labs(x = "Year", y = "Incident Count")+
+  scale_x_discrete(limits = seq(2005, 2015, by = 1))+
+  bar.theme
+```
+
+A more detailed breakdown of thefts shows us that most categories are on the decline, 
+but general theft/larceny(which is roughly the same size as the other three categories combined)
+seems to show a significant upward trend.
+```{r theft_crime_by_year, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
+crime_lou%>%
+  filter(crime_type == 'motor vehicle theft'|crime_type == 'theft/larceny'|crime_type == 'burglary'|
+           crime_type == 'vehicle break-in/theft')%>%
+  group_by(year, crime_type)%>%
+  summarise(count = n())%>%
+  ggplot(aes(x = year, y = count))+
+  stat_smooth(method = 'lm', size = 1.25, alpha = .8, fill = "grey", colour = "black")+
+  geom_bar(stat = 'identity', colour = "black",fill = "darkblue",  alpha = .7)+
+  facet_wrap(~crime_type)+
+  ggtitle("Thefts By Year")+
+  labs(x = "Year", y = "Incident Count")+
+  scale_x_discrete(limits = seq(2005, 2015, by = 1))+
+  bar.theme
+```
+
+```{r, theft_crime_percentage_changes, cache = TRUE, echo = FALSE}
+theft_sum_df <- crime_lou %>%
+  filter(crime_type == "burglary"|crime_type == 'motor vehicle theft'|crime_type == 'theft/larceny'|
+           crime_type == 'vehicle break-in/theft')%>%
+  group_by(year, crime_type)%>%
+  summarise(count = n())
+
+theft_per_changes <- theft_sum_df%>%
+  group_by(crime_type)%>%
+  mutate(Change_from_2014 = paste0(round(100*((count /lag(count))-1), 1), "%"),
+         Change_from_Max = paste0(round(100*((count /max(count))-1), 1), "%"),
+         Change_from_Median = paste0(round(100*((count /median(count))-1), 1), "%"))%>%
+  filter(year == 2015)%>%
+  select(crime_type, Change_from_2014, Change_from_Max, Change_from_Median)
+
+all_theft_sum <- crime_lou%>%
+  filter(crime_type == "burglary"|crime_type == 'motor vehicle theft'|crime_type == 'theft/larceny'|
+           crime_type == 'vehicle break-in/theft')%>%
+  group_by(year)%>%
+  summarise(count = n())
+
+all_theft_changes <- all_theft_sum%>%
+  mutate(crime_type = 'all',
+         Change_from_2014 = paste0(round(100*((count /lag(count))-1), 1), "%"),
+         Change_from_Max = paste0(round(100*((count /max(count))-1), 1), "%"),
+         Change_from_Median = paste0(round(100*((count /median(count))-1), 1), "%"))%>%
+  filter(year == 2015)%>%
+  select(crime_type, Change_from_2014, Change_from_Max, Change_from_Median)
+  
+all_theft_changes <- rbind(all_theft_changes, theft_per_changes)
+all_theft_changes
+```
+
+```{r theft_crime_distribution, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
+mapData <- crime_lou%>%
+  filter((crime_type == "burglary"|crime_type == 'motor vehicle theft'|crime_type == 'theft/larceny'|
+           crime_type == 'vehicle break-in/theft') &  !is.na(lat)  & !is.na(lng))
+  
+ggmap(louisvilleMap)+
+  stat_bin2d(
+    aes(x = lng, y = lat),
+    data = mapData,
+    size = .00001, bins = 75, alpha = .8, color = "gray20"
+  )+
+  scale_fill_viridis(option = "inferno", name = "Incident Count")+
+  ggtitle("Louisville Thefts, 2005-2015")+
+  density.theme
+
+density.theme <- base.theme <- 
+  theme(axis.text = element_blank(), axis.ticks = element_blank())+
+  theme(legend.title = element_text(size = 14, family = 'serif', face = 'bold', color = "#666666"))+
+  theme(plot.title = element_text(size = 18, family = "serif", face = 'bold', hjust = 0, color = "#666666"))+
+  theme(axis.title = element_blank())
+
+p1 <- ggmap(louisvilleMap)+
+  stat_bin2d(
+    aes(x = lng, y = lat),
+    data = mapData%>%filter(crime_type == 'burglary'),
+    size = .00001, bins = 40, alpha = .8, color = "gray20"
+  )+
+  ggtitle("Distribution of Burglary's")+
+  scale_fill_viridis(option = "inferno", name = "Incident Count")+
+  density.theme
+
+p2 <- ggmap(louisvilleMap)+
+  stat_bin2d(
+    aes(x = lng, y = lat),
+    data = mapData%>%filter(crime_type == 'motor vehicle theft'),
+    size = .00001, bins = 40, alpha = .8, color = "gray20"
+  )+
+  ggtitle("Distribution of Motor Vehicle Thefts")+
+  scale_fill_viridis(option = "inferno", name = "Incident Count")+
+  density.theme
+
+p3 <- ggmap(louisvilleMap)+
+  stat_bin2d(
+    aes(x = lng, y = lat),
+    data = mapData%>%filter(crime_type == 'theft/larceny'),
+    size = .00001, bins = 40, alpha = .8, color = "gray20"
+  )+
+  ggtitle("Distribution of theft/larceny")+
+  scale_fill_viridis(option = "inferno", name = "Incident Count")+
+  density.theme
+
+p4 <- ggmap(louisvilleMap)+
+  stat_bin2d(
+    aes(x = lng, y = lat),
+    data = mapData%>%filter(crime_type == 'vehicle break-in/theft'),
+    size = .00001, bins = 40, alpha = .8, color = "gray20"
+  )+
+  ggtitle("Distribution of Vehicle Break-in/theft")+
+  scale_fill_viridis(option = "inferno", name = "Incident Count")+
+  density.theme
+
+grid.arrange(p1, p2, p3, p4, ncol = 2)
+```
