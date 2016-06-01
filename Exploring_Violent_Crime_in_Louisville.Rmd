@@ -467,4 +467,4 @@ than a ground truth.
 
 Stay tuned for part two where I begin pilfering the dataset for insight into Louisville's theft problem.
 
-The full code used to generate this report can be found [here](www.github.com).
+The full code used to generate this report can be found [here](https://github.com/Grollus/LouisvilleCrime/blob/master/Exploring_Violent_Crime_in_Louisville.Rmd).
