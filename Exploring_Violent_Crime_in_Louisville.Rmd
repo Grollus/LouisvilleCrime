@@ -150,6 +150,9 @@ density.theme <-
 #   group_by(yday)%>%
 #   summarise(count = n())
 
+# First and last day of year are way outside the rest of the distribution
+# I think it has something to do with wanting year end numbers to look better,
+# but regardless, I am excluding them for now
 daily_sums_by_year <- crime_lou%>%
   filter(nibrs_code == '13a' |nibrs_code == '120'| nibrs_code == '09a'|nibrs_code == '11a')%>%
   group_by(year = as.factor(year), yday = as.factor(yday))%>%
