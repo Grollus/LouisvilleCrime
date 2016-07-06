@@ -14,8 +14,11 @@ options(scipen = 999)
 ```
 
 ```{r raw_data, echo = FALSE, cache = TRUE, warning = FALSE, message = FALSE}
+# Raw data is from earlier work done 
+# here https://github.com/Grollus/LouisvilleCrime/blob/master/louisville_Raw_Data_and_Geocoding.R
 raw_data <- read_csv("crime_lou_with_geocoding.csv")
 
+# Creates a number of useful date variables from POSIXct object
 create_date_variables <- function(df){
   require(lubridate)
   # Uses the POSIXct date_occured variable to create useful date related
@@ -85,18 +88,30 @@ crime_lou <- crime_lou%>%
   filter(zip_code %in% zips & year >= 2005 & year <= 2015)
 ```
 # Introduction
-So far in this series, I have been concentrating more on the spatial components of specific 
-crime categories.  Today, I would like to begin exploring the temporal aspect of the 
-dataset. It is my impression that general police work assumes a certain temporal pattern
-to criminal offenses. For instance, it is common to hear how crime is higher during the summer
+So far in this series, I have been concentrating on the spatial components of specific 
+crimes.  Today, I would like to begin exploring some time aspects of the 
+dataset. It is my impression that police departments assume crime ebbs and flows based on various
+time variables. For instance, it is common to hear how crime is higher during the summer
 months or how crime rates rise at night. But, not being well versed in criminal procedures,
-I was curious whether this common knowledge was accurate or merely an outdate urban legend of sorts.
-With that in mind, I will begin by examining how crime rates vary depending on the time variable
-we are dealing with. Hopefully, this will yield some insight into the ebb and flow of crime
-within Louisville and allow for some simple forecasting of future crime counts.
+I was curious whether this common knowledge was accurate or merely an outdated urban legend of sorts.
 
+With that in mind, I will address two main questions in this report: One, is there variation
+in the level of crime when viewed by various time intervals and, if so, what does this variation
+look like? It turns out that we can see variation in crime by the hour, the day of the week,
+the month of the year, etc. But the answer is complicated by the fact that different crimes may
+follow different trends or crimes may follow some trends, but not all of them. Like many things,
+in the aggregate everything looks pretty orderly, but when you delve into underlying layers, you discover 
+substantial more chaos.
 
-## Overview of Crime Variation by Various Time Elements
+And two, can we use this temporal knowledge to successfully forecast crime counts? Again, the
+answer is a qualified 'Yes, but'. It is clear that a portion of the variation in criminal
+activity is time based, but, as you will see, when we attempt to forecast at finer grained
+levels it becomes clear we are attempting to forecast with only one of the many variables that influence
+criminal activity. 
+
+## How Do Crime Counts Fluctuate Over Time
+
+### Variation of Aggregated Crime Counts
 To begin, I want to quickly get a basic understanding of the fluctuation of crime in Louisville.
 The plot below is a quick overview of crime counts when grouped by the day of the week, month,
 hour, and day. These plots do mask yearly variation since they are aggregated, but it is
@@ -157,6 +172,7 @@ of the coin--it is `r last_day_valley`% below the (non-first day of the month) p
 two days stand out even more because of how consistent the rest of the daily counts
 seem to be. If we were to discard the first and last days of the month, we would have 
 very little evidence of any periodic effect.
+
 
 ```{r hdwm_full_dataset, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
 library(grid)
@@ -220,6 +236,7 @@ grid.arrange(dayOfWeek, monthly, hourly, daily, ncol = 2, top = textGrob("Crime 
 
 ```
 
+### Investigation of Reporting Anomalies
 After some thought, the last day of the month valley seems like it could be one of two 
 things (and most probably a combination of both). One possibility is the varying number of days in a month results in skewed counts 
 for the last couple days (particularly the 30th and 31st). In other words, since not 
@@ -245,7 +262,7 @@ crime_lou%>%
   stat_smooth(method = 'auto', size = .6, alpha = .4, fill = 'grey', colour = 'red2')+
   scale_x_discrete(limits = seq(1, 31, by = 2))+
   labs(x = "Day", y = "")+
-  ggtitle("Daily Crime Counts, by Month")+
+  ggtitle("Daily Crime Counts for 2015, by Month")+
   bar.theme+
   theme(axis.text.x = element_text(size = 5))+
   theme(strip.background = element_rect(fill = 'white'),
@@ -315,10 +332,10 @@ crime_lou%>%
 ```
 
 As you can see, most crimes are reported within a day of occurring. However, crimes that are not reported
-immediately (for whatever reason) seem to get lumped on the first day of a month
-and at the midnight hour of whatever day they land on. This all seems to be related to using the 'date occurred' 
-versus the 'date reported' variable to create my time variables. Several of these 
-peaks--hourly and daily-- disappear when you fashion the time variables from the 
+immediately (for whatever reason) get lumped on the first day of a month
+and on the midnight hour of whatever day they land on. This all seems to be related to using the 'date occurred' 
+versus the 'date reported' variable for my analysis. A couple of these 
+peaks--hourly and daily-- disappear when you switch to the 
 'date reported' variable. It is not immediately obvious to me which variable is the 
 better choice. I was unable to find out precisely how either date was created(i.e., time report
 was filed? time officer was on scene? estimation of when offense took place?) so I will 
@@ -330,47 +347,184 @@ significant, reporting gap present in the data makes viewing the data in certain
 difficult, though not impossible. Ideally, we would have one date, an accurate representation
 of when the crime happened (and if you wanted metrics like officer response time that would 
 be a separate variable).  Of course, for crimes where the offense takes place over
-a period of time--like fraud--this doesn't work too well.  This probably plays into 
+a period of time--like fraud--this doesn't work too well.  This probably factors into 
 why the data are recorded like they are.
 
-Second, even with this reporting bias, we see clear hourly, weekly and monthly periods.
-In the next section, we will use this knowledge to attempt some simple forecasting.
+Second, even with this reporting bias, in the aggregate we see clear hourly, weekly and monthly periods.
+We will take advantage of this knowledge when building our forecasts.
+
+### Variation of Crime Counts By Criminal Offense
+
+While in the aggregate, everything looks very clear-cut, it is important to point out that 
+this is not representative of the entire picture. As you might expect, when you look at individual crimes
+you see a lot of variation in terms of what their temporal periods look like.  For instance, if we look at three 
+different crimes--dui, robbery and burglary--we see vast differences. Dui's hourly variation
+is flipped from crimes as a whole, with most happening in the earlier morning hours. And then robbery
+and burglary--two seemingly related theft offenses--have wildly different hourly and weekly
+variation, but very similar monthly variation. 
+
+
+```{r hwm_ind_crimes, fig.height = 7.5, echo = FALSE, cache = TRUE, out.width = '1100px', out.height = '1100px', warning = FALSE, message = FALSE}
+library(grid)
+plot_x_by_hour <- function(df, variable, color){
+  df%>%
+    group_by_(variable, ~hour)%>%
+    summarise_(count = ~n())%>%
+    ggplot(aes(x = hour, y = count))+
+    geom_bar(stat = 'identity', fill = color, alpha = .4)+
+    facet_grid(variable, scales = 'free_y')+
+    stat_smooth(method = 'auto', size = .7, alpha = .4, fill = "grey", colour = "red2")+
+    ggtitle("Hourly Crime Counts")+
+    scale_x_discrete(limits = seq(0, 23, by = 2))+
+    labs(x = "Hour", y = "Count")+
+    bar.theme+
+    theme(axis.text.x = element_text( size = 5))+
+    theme(strip.background = element_rect(fill = 'white'),
+        strip.text.x = element_text(size = 10))
+}
+
+plot_x_by_day_of_week <- function(df, variable, color){
+  df%>%
+    group_by_(variable, ~day_of_week)%>%
+    summarise_(count = ~n())%>%
+    mutate(day_of_week = ifelse(day_of_week == "Sunday", "Sun",
+                                ifelse(day_of_week == "Monday", "Mon",
+                                       ifelse(day_of_week == "Tuesday", "Tue",
+                                              ifelse(day_of_week == "Wednesday", "Wed",
+                                                     ifelse(day_of_week == "Thursday", "Thu",
+                                                            ifelse(day_of_week == "Friday", "Fri", "Sat")))))))%>%
+    ggplot(aes(x = factor(day_of_week, levels = c("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")), y = count))+
+    geom_bar(stat = 'identity', fill = color, alpha = .4)+
+    facet_wrap(variable)+
+    stat_smooth(method = 'auto', size = .7, alpha = .4, fill = "grey", colour = "red2")+
+    ggtitle("Crime Counts by Day of Week")+
+    labs(x = "Day of Week", y = "Count")+
+    bar.theme+
+    theme(axis.text.x = element_text( size = 5))+
+    theme(strip.background = element_rect(fill = 'white'),
+        strip.text.x = element_text(size = 10))
+}
+
+plot_x_by_month <- function(df, variable, color){
+  df%>%
+    group_by_(variable, ~month)%>%
+    summarise_(count = ~n())%>%
+    ggplot(aes(x = month, y = count))+
+    geom_bar(stat = 'identity', fill = color, alpha = .4)+
+    facet_wrap(variable)+
+    stat_smooth(method = 'auto', size = .7, alpha = .4, fill = "grey", colour = "red2")+
+    ggtitle("Monthly Crime Counts")+
+    scale_x_discrete(limits = month.abb)+
+    labs(x = "Month", y = "Count")+
+    bar.theme+
+    theme(axis.text.x = element_text( size = 5))+
+    theme(strip.background = element_rect(fill = 'white'),
+        strip.text.x = element_text(size = 10))
+}
+
+crime_filter <- function(crime){
+  crime_lou%>%
+    filter(crime_type == crime)
+}
+
+# dui plots
+dui_hour <- plot_x_by_hour(crime_filter('dui'), ~crime_type, "darkgreen")+
+  ggtitle("")
+dui_dow <- plot_x_by_day_of_week(crime_filter('dui'), ~crime_type, "darkgreen")+
+  ggtitle("")+
+  labs(y = "")
+dui_month <- plot_x_by_month(crime_filter('dui'), ~crime_type, "darkgreen")+
+  ggtitle("")+
+  labs(y = "")
+
+# robbery plots
+robbery_hour <- plot_x_by_hour(crime_filter('robbery'), ~crime_type, "darkred")+
+  ggtitle("")
+robbery_dow <- plot_x_by_day_of_week(crime_filter('robbery'), ~crime_type, "darkred")+
+  ggtitle("")+
+  labs(y = "")
+robbery_month <- plot_x_by_month(crime_filter('robbery'), ~crime_type, "darkred")+
+  ggtitle("")+
+  labs(y = "")
+
+# burglary plots
+burglary_hour <- plot_x_by_hour(crime_filter('burglary'), ~crime_type, "purple4")+
+  ggtitle("")
+burglary_dow <- plot_x_by_day_of_week(crime_filter('burglary'), ~crime_type, "purple4")+
+  ggtitle("")+
+  labs(y = "")
+burglary_month <- plot_x_by_month(crime_filter('burglary'), ~crime_type, "purple4")+
+  ggtitle("")+
+  labs(y = "")
+
+grid.arrange(dui_hour, dui_dow, dui_month,
+             robbery_hour, robbery_dow, robbery_month,
+             burglary_hour, burglary_dow, burglary_month,
+             ncol = 3, top = textGrob("Crime Counts by", hjust = .25, x = unit(3.5, 'lines'), 
+                                                                      gp = gpar(fontsize = 14,
+                                                                      font = 2,
+                                                                      fontfamily = 'serif',
+                                                                      col = "#666666")))
+
+```
+
+If you explore all the crime types included 
+in the data set, it is very common to see crimes following one or two of the overall
+trends, but it is quite rare that they follow the overall trend in all categories. This makes the data
+more interesting, but it also makes forecasting more difficult. Essentially, by limiting
+ourselves to only using time variables we will be forecasting with one hand behind our back.
+For more accurate models we may have to forecast individual crime categories first and then 
+build up to a full scale model.
 
 # Forecasting Crime Counts
-As we have seen from the analysis so far, the overall crime count is composed of several 
-elements. There are hourly, weekly, and monthly seasonal elements at the very least. But 
-there are also elements that might be considered 'noise', such as the reporting anomolies
-we have been discussing so far. Luckily, the field of forecasting is vast and well explored
+As we have seen from the analysis so far, the overall crime count is composed of many 
+elements. There are hourly, weekly, and monthly seasonal periods to account for and,
+at a finer grained level, there is variation in the seasonal patterns between crime types. On top of that,
+as we have seen in previous [reports](https://rpubs.com/athoul01/187994) there is a discernable
+spatial component. Additionally, there are elements that might be considered 'noise', such as the reporting anomolies
+we have discussed. Luckily, the field of forecasting is vast and well explored
 and we can draw from it to inform our analysis. Much of the following analysis is based on 
 Rob Hyndman's excellent open source text [Forecasting: principles and practice](https://www.otexts.org/fpp).
+For this initial exploration, I will focus on using the overall seasonal components
+to forecast the overall crime counts. This will greatly simplify the model and will
+also give us a solid foundation on which to build more complicated(and hopefully more accurate)
+models in the future.
 
-Forecasting typically breaks down a time series into three types of patterns-- trend, seasonal 
+As a brief introduction, forecasting typically breaks down a time series into three types of patterns-- trend, seasonal 
 and cyclic(details [here](https://www.otexts.org/fpp/6/1). The hourly, weekly, and monthly
 variation fall into the seasonal category, defined by their fixed and known periods of fluctuation.
 A trend will be a long term rise or fall in the crime counts. Cyclic patterns are similar
 to seasonal patterns except their periods are not of fixed length (and the precise length
 may not be known). We can then combine these components in the following manner to model
-our time series $\ y_{t} = S_{t} + T_{t} + E_{t}$. $\ y_{t}$ is the data at period $\ {t}$,
+our time series: $\ y_{t} = S_{t} + T_{t} + E_{t}$. $\ y_{t}$ is the data at period $\ {t}$,
 $\ S_{t}$ is the seasonal component, $\ T_{t}$ is a combination term composed of trend and 
 cycle and $\ E_{t}$ is the error term(essentially variation/noise unexplained by the other terms).
 This is all vastly simplified, but that is the basic gist of time series decomposition.
 
-## Montly Forecasts
+## Monthly Forecasts
 
 ### Naive Baseline Models
-The courser the data, the simplier it is to forecast, so we will actually start by looking
-at monthly crime counts.  To give us a useful forecast, we setup a simple training and testing
-data set, though for a more accurate assessment, we would want to use some form of
-cross validation. To get a baseline for model performance, I did several naive forecasting
-methods.  The average method simply predicts the historical average for all future values.
+The courser the data the simplier it is to forecast. Thus we will start by looking
+at monthly crime counts. Several steps need to be taken before diving into our modeling techniques.
+First, we need to setup a simple training and testing data set. In this case, we split
+the time series into two parts--our training set from 2006-2015 and our test set consisting of the first
+4 months of 2016. This allows us to test our forecast on data that the model hasn't
+seen yet, which gives us a significantly more accurate measure of error than training and 
+testing on the same data. This is a quick, dirty way to validate our forecasts, but for a more accurate assessment
+we would need to set up a cross validation scheme.
+
+Second, in order to gauge whether the more complicated models are worth fitting I need some
+sort of baseline forecast. If I am not able to beat this baseline, then the more complicated
+models are not worth the effort and I may need to rethink my strategy. I will use three
+naive methods to generate a baseline. The average method simply predicts the historical average for all future values.
 The drift method basically extrapolates the future by drawing a line between the first and
 last data points. The seasonal naive method takes into account seasonality by forecasting
 the value to be equal to the last observed value from the same period the year before.
 
-When you view the results, it is pretty clear that none of the naive forecasts do a very good job, 
-although the seasonal naive does look a little closer.  But evaluating the model by RMSE
-(all metrics yield similar results with this dataset) we see the drift model gives the
-best results.  So our baseline to beat will be the drift model.
+When you view the results, it is pretty clear that none of the naive forecasts do a very good job
+(although the seasonal naive does capture some of the shape).  Evaluating the model by RMSE(root mean squared error)
+and MAPE(mean absolute percent error) we see the mean model gives the
+best results.  So our baseline to beat for these monthly forecasts will be the mean model.
 
 ```{r naive_monthly_forecasts, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
 library(forecast)
@@ -383,9 +537,9 @@ monthly_sums <- full_crime%>%
   summarise(count = n())
 
 # Creating time series and splitting into train and test sets
-monthly_ts <- ts(monthly_sums$count, start = 2006, frequency = 12)
-monthly_train <- window(monthly_ts, start = c(2006, 1), end = c(2015,12))
-monthly_test <- window(monthly_ts, start = 2016, end = c(2016, 4))
+monthly_ts <- ts(monthly_sums[, 3], start = 2006, frequency = 12)
+monthly_train <- window(monthly_ts, start = c(2006, 1), end = c(2015, 10))
+monthly_test <- window(monthly_ts, start = c(2015, 11), end = c(2016, 4))
 
 # Creating naive forecasts
 m_mean <- meanf(monthly_train, h = 6)
@@ -396,7 +550,7 @@ m_sn <- snaive(monthly_train, h = 6)
 plot(m_mean, plot.conf = FALSE, main = "Forecasts for Monthly Crime Counts")
 lines(m_sn$mean, col = 'red')
 lines(m_drift$mean, col = 'green')
-lines(monthly_test, lty = 2)
+lines(monthly_test[,1], lty = 2)
 legend("topright", lty = c(1,1, 1, 2), col = c(4, 2, 3, 1),
        legend = c("Mean Method", "Seasonal Naive", "Drift Method", "Actual Values for 2016"))
 
@@ -405,7 +559,9 @@ m_mean_acc <- accuracy(m_mean, monthly_test)
 m_sn_acc <- accuracy(m_sn, monthly_test)
 m_drift_acc <- accuracy(m_drift, monthly_test)
 
-acc_df <- data.frame(RMSE = c(m_mean_acc[2, 2], m_sn_acc[2, 2], m_drift_acc[2, 2]), row.names = c("Mean", "Seasonal Naive", "Drift"))
+acc_df <- data.frame(RMSE = c(m_mean_acc[2, 2], m_sn_acc[2, 2], m_drift_acc[2, 2]),
+                     MAPE = c(m_mean_acc[2, 5], m_sn_acc[2, 5], m_drift_acc[2, 5]),
+                     row.names = c("Mean", "Seasonal Naive", "Drift"))
 acc_df
 ```
 
@@ -414,46 +570,56 @@ acc_df
 Now, let's look at some more advanced models. I will not delve into the details of these, 
 but I will provide links for those interested in more of the nitty gritty.  The first model
 is known as [exponential smoothing](https://www.otexts.org/fpp/7).  It is essentially a weighted average of historical
-observations, but the weights are actually decay as they get older.  This means more recent 
+observations, but the weights are decaying as they get older.  This means more recent 
 observations become more important, which seems very logical for forecasting. I believe these
 models were developed to help address trend and seasonality issues in time series, so it 
-seems like they should do well with our crime counts.
+seems like they should do well with our highly seasonal crime counts.
 
 Second, I fit an [Autoregressive Integrated Moving Average (ARIMA)](https://www.otexts.org/fpp/8) model. 
 Unlike exponential smoothing, ARIMA models are looking at historical correlations of the variable of interest with itself
-at different periods in the past.  Then, the forecast is created with a linear combination
-of these values. 
+at different periods in the past. These autocorrelation terms are combined with moving average
+terms  to form the ARIMA model. Since there is seasonality to the data, I use a seasonal ARIMA
+model. This incorporates seasonality by backshifting non-seasonal components by the seasonal
+period you specify to form seasonal terms. All these terms combine to form the full seasonal
+ARIMA model.
 
-Finally, the [time series decomposition](https://www.otexts.org/fpp/6/6) model is fit by first decomposing the time series into 
+Finally, a [time series decomposition](https://www.otexts.org/fpp/6/6) model is fit by first decomposing the time series into 
 its seasonal(seasonal and cyclic) and nonseasonal(trend and error) components and then separately forecasting 
-each component.
+each component. For the seasonal component, $\hat{S}_{t}$, we generally use the seasonal naive method
+since we assume the seasonality is unchanging. For the seasonally adjusted component,
+$\hat{A}_{t}$ (where $\hat{A}_{t} = \hat{T}_{t} + \hat{E}_{t}$ for additive decomposition or
+$\hat{A}_{t} = \hat{T}_{t}\hat{E}_{t}$ for multiplicative decomposition), we can use
+whatever non-seasonal method we choose. 
 
-```{r monthly_forecasts_cont, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
+Below are the resulting forecast plots (with 80 and 95 percent prediction intervals) and error metrics.
+
+```{r monthly_forecasts_adv_models, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
 # Exponential fit
-exp_fit <- ets(monthly_train)
+exp_fit <- ets(monthly_train[, 1], damped = FALSE,
+               alpha = .99, lambda = BoxCox.lambda(monthly_train[, 1]))
 
-plot(forecast(exp_fit, h = 6), monthly_test, main = "Montly Crime Forecast with Exponential Smoothing")
-lines(monthly_test, col = 'red')
+plot(forecast(exp_fit, h = 6), monthly_test[,1], main = "Monthly Crime Forecast with Exponential Smoothing")
+lines(monthly_test[,1], col = 'red')
 legend("topright", lty = 1, col = c('blue', 'red'),
        legend = c("Exponential Smoothing", "Actual Values for 2016"))
 
 m_exp_acc <- accuracy(forecast(exp_fit), monthly_test)
 
 # Arima fit
-ari_fit <- auto.arima(monthly_train)
+ari_fit <- auto.arima(monthly_train[, 1])
 
-plot(forecast(ari_fit, h = 6), monthly_test, main = "Monthly Crime Forecast with ARIMA")
-lines(monthly_test, col = 'red')
+plot(forecast(ari_fit, h = 6), monthly_test[, 1], main = "Monthly Crime Forecast with ARIMA")
+lines(monthly_test[, 1], col = 'red')
 legend("topright", lty = 1, col = c('blue', 'red'),
        legend = c("ARIMA", "Actual Values for 2016"))
 
 m_ari_acc <- accuracy(forecast(ari_fit), monthly_test)
 
 # Time Series Decomp
-m_decomp <- stl(monthly_train, s.window = 7)
+m_decomp <- stl(monthly_train[, 1], s.window = 7)
 m_decomp_fc <- forecast(m_decomp, h = 6)
-plot(m_decomp_fc, main = "Montly Crime Forecast with Decomposition")
-lines(monthly_test, col = 'red')
+plot(m_decomp_fc, main = "Monthly Crime Forecast with Decomposition")
+lines(monthly_test[, 1], col = 'red')
 legend("topright", lty = 1, col = c('blue', 'red'),
        legend = c("Decomposition", "Actual Values for 2016"))
 
@@ -461,125 +627,268 @@ m_decomp_acc <- accuracy(m_decomp_fc, monthly_test)
 
 monthly_acc_df <- data.frame(RMSE = c(m_mean_acc[2, 2], m_sn_acc[2, 2], m_drift_acc[2, 2], 
                               m_exp_acc[2, 2], m_ari_acc[2, 2], m_decomp_acc[2, 2]),
-                     row.names = c("Mean", "Seasonal Naive", "Drift", "Exponential",
+                             MAPE = c(m_mean_acc[2, 5], m_sn_acc[2, 5], m_drift_acc[2, 5], 
+                              m_exp_acc[2, 5], m_ari_acc[2, 5], m_decomp_acc[2, 5]),
+                              row.names = c("Mean", "Seasonal Naive", "Drift", "Exponential",
                                    "ARIMA", "Decomposition"))
 monthly_acc_df
 ```
 
-TO DO
+As we can see, all three methods capture the general shape of the data, but only our ARIMA 
+forecast does better than naively predicting the mean value for every month. Thinking about 
+the reporting anomalies we discovered in the beginning of this report, perhaps this is 
+not too surprising. If January and December counts are falling outside what we would expect
+seasonally because of reporting issues, should we really expect something like seasonal
+decomposition forecasting to work well?
 
-```{r daily_forecasts, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
+Luckily, we can capture some of this information and incorporate it into our model.
+With our current best model, ARIMA, we are only using information about past months
+crime counts. There are no external variables in the model. But we have seen that if you
+know the month is January or December you should expect higher or lower crime counts, respectively.
+This sounds exactly like something regression models handle all the time. Thankfully,
+work has been done to combine ARIMA and regression models into a class of models
+called [dynamic regression models](https://www.otexts.org/fpp/9/1). With these, we are able
+to dummy code variables identifying January and December(as well as peak months of July
+and August) and incorporate them into our final model. As you can see below, the improvement is signifcant. 
+We have reduced our forecasting error by over 2% from the baseline model. With some
+tinkering of parameters and with the addition of more useful regressors, this model could 
+probably be improved even more.
+
+```{r monthly_forecast_ari+reg, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
+#Monthly Forecasting
+monthly_sums <- full_crime%>%
+  filter(year >= 2006)%>%
+  group_by(year, month)%>%
+  summarise(count = n())%>%
+  mutate(is_jan = ifelse(month == 1, 1, 0), is_jul = ifelse(month == 7, 1, 0),
+         is_aug = ifelse(month == 8, 1, 0), is_dec = ifelse(month == 12, 1, 0))
+
+
+# Creating time series and splitting into train and test sets
+monthly_ts <- ts(monthly_sums[, 3:7], start = 2006, frequency = 12)
+monthly_train <- window(monthly_ts, start = c(2006, 1), end = c(2015, 10))
+monthly_test <- window(monthly_ts, start = c(2015,11), end = c(2016, 4))
+
+
+# model fit and forecast
+ari_fit_with2Reg <- auto.arima(monthly_train[,1], seasonal = TRUE, xreg = monthly_train[, 2:5])
+
+plot(forecast(ari_fit_with2Reg, xreg = monthly_test[, 2:5], h = 6), monthly_test[, 1], main = "Monthly Crime Forecast with ARIMA + Regressors")
+lines(monthly_test[, 1], col = 'red')
+legend("topright", lty = 1, col = c('blue', 'red'),
+       legend = c("ARIMA + Regressors", "Actual Values for 2016"))
+
+m_ariReg_acc <- accuracy(forecast(ari_fit_with2Reg, xreg = monthly_test[,2:5]), monthly_test)
+
+monthly_acc_df <- data.frame(RMSE = c(m_mean_acc[2, 2], m_ari_acc[2, 2], m_ariReg_acc[2, 2]),
+                             
+                             MAPE = c(m_mean_acc[2, 5], m_ari_acc[2, 5], m_ariReg_acc[2, 5]),
+                     row.names = c("Mean", "ARIMA", "ARIMA + Reg"))
+monthly_acc_df
+
+```
+
+```{r monthly_forecast_decline_calc, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
+monthly_train_12 <- window(monthly_ts, start = c(2006, 1), end = c(2015, 4))
+monthly_test_12 <- window(monthly_ts, start = c(2015,5), end = c(2016, 4))
+
+# model fit and forecast
+ari_fit_with2Reg_12 <- auto.arima(monthly_train_12[,1], seasonal = TRUE, xreg = monthly_train_12[, 2:5])
+m_ariReg_acc_12 <- accuracy(forecast(ari_fit_with2Reg_12, xreg = monthly_test_12[,2:5]), monthly_test_12)
+
+```
+So with some, relatively, simple forecasting methods we can provide
+moderately accurate numbers for the number of crimes that will occur per month. These results
+will, obviously, get less accurate as our forecasting window gets further out, but that is
+the nature of forecasting. Just shifting the forecast period from 6 months to 12 months
+results in a rise in MAPE from `r round(m_ariReg_acc[2, 5], 1)`% to `r round(m_ariReg_acc_12[2, 5], 1)`%
+with our best ARIMA + regressors model.
+
+## Daily Forecasts
+
+### Naive Baseline Forecasts
+As with our monthly forecasts, a solid baseline needs to be established to evaluate the
+usefulness of our model. The creation of the training and testing sets and the initial 
+baseline models are all identical to their monthly counterparts. 
+```{r daily_forecasts_naive, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
 ####################################################################################
 # Daily Forecasting
 daily_sums <- full_crime%>%
   filter(year >= 2006)%>%
-  group_by(date)%>%
-  summarise(count = n())
+  group_by(date, year)%>%
+  summarise(count = n())%>%
+  filter(date <= '2016-04-30')
 
 #creates daily time series with multiple periods; then creates train/test split
-daily_ts <- msts(daily_sums$count, start = 2006, seasonal.periods = c(7, 365.25))
-daily_train <- window(daily_ts, start = 2006, end = 2015)
-daily_test <- window(daily_ts, start = 2015)
+daily_ts <- msts(daily_sums$count, seasonal.periods = c(7))
+daily_train <- window(daily_ts, start = 1, end = 522.6)#the precise week number coinciding with end of 2015
+daily_test <- window(daily_ts, start = 522.7)#week number coinciding with beginning of 2016
 
 # Creating baseline models and assessing accuracy
-d_mean <- meanf(daily_train, h = 365)
-d_drift <- rwf(daily_train, h = 365)
-d_snaive <- snaive(daily_train, h = 365)
+# h = 90 will forecast 90 days out.
+d_mean <- meanf(daily_train, h = 18)
+d_drift <- rwf(daily_train, h = 18, drift = TRUE)
+d_snaive <- snaive(daily_train, h = 18)
 
 d_mean_acc <- accuracy(d_mean, daily_test)
 d_drift_acc <- accuracy(d_drift, daily_test)
 d_snaive_acc <- accuracy(d_snaive, daily_test)
 
-plot(d_mean, plot.conf = FALSE, main = "Forecasts for Daily Crime Counts")
+plot(d_mean, plot.conf = FALSE, main = "Forecasts for Daily Crime Counts", xlim = c(468,525),
+     xlab = "Weeks since beginning of 2006")
 lines(d_snaive$mean, col = 'red')
 lines(d_drift$mean, col = 'green')
 # lines(daily_test, lty = 2)
-legend("topright", lty = c(1,1, 1, 2), col = c(4, 2, 3, 1),
-       legend = c("Mean Method", "Seasonal Naive", "Drift Method", "Actual Values for 2016"))
+legend("topright", lty = c(1,1, 1), col = c(4, 2, 3),
+       legend = c("Mean Method", "Seasonal Naive", "Drift Method"))
 
+d_acc_df <- data.frame(RMSE = c(d_mean_acc[2, 2], d_snaive_acc[2, 2], d_drift_acc[2, 2]),
+                     MAPE = c(d_mean_acc[2, 5], d_snaive_acc[2, 5], d_drift_acc[2, 5]),
+                     row.names = c("Mean", "Seasonal Naive", "Drift"))
+d_acc_df
+```
+
+The above plot shows daily crime counts for the end of 2014 through about May of 2016.
+Once again, the naive forecasts are pretty poor, although this time the drift model performs
+best. Note that while the naive baseline for monthly counts had a MAPE below 5%, our daily 
+baseline is double that at `r round(d_drift_acc[2, 5], 1)`%. We are looking
+at a much more uncertain forecast, but that should not be surprising. Intuitively, I would 
+expect more randomness in a daily measure. Aggregating over a longer period of time, that randomness 
+will become masked. 
+
+### Decomposition, TBATS and ARIMA Models
+
+Our more advanced models are similar to those used in the monthly forecasts. The main difference
+is we are now trying to model much longer seasonal periods which is not something standard
+exponential smoothing or ARIMA were designed to deal with. To address this, I used two techniques--
+TBATS and ARIMA with fourier terms. The TBATS(Trigonometric Box-Cox Transform, ARMA Errors, Trend and Seasonal Components) model
+is an extension of exponential smoothing which generalizes the technique to allow for complex
+seasonality effects. Since we are looking at weekly, monthly and possibly yearly seasonal effects,
+we have both complex seasonality and long seasonality and TBATS should do quite well. A full discussion
+of the technique is beyond the scope of this report, but can be found 
+[here](http://robjhyndman.com/papers/ComplexSeasonality.pdf).
+
+Our ARIMA model is similar to the one used in the monthly model, but we include fourier covariate terms 
+to model the the multiple and long seasonal periods. By including these terms, we are able to better
+fit the jittery structure of the time series. For this data, I include fourier terms
+to model the yearly, monthly and weekly seasonality. A full discussion of the technique can be found 
+[here](http://robjhyndman.com/hyndsight/longseasonality/).
+
+Finally, a decomposition model was fit in the same manner as with the monthly data,
+but a larger 'window' is used. This is because our seasonal pattern seems to stay 
+constant through the years and a large window will tell the model to look at all the 
+data while fitting.
+
+```{r daily_forecasts_adv, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
+###################################################################################
 # Time Series Decomp Forecast
-d_decomp <- stl(daily_train, s.window = 7)
+d_decomp <- stl(daily_train, s.window = 365)
 
-decomp_fc <- forecast(d_decomp, h = 365)
-plot(decomp_fc, main = "Forecasts for Daily Crime Counts using Decomposition")
-
+decomp_fc <- forecast(d_decomp, h = 18)
 d_decomp_acc <- accuracy(decomp_fc, daily_test)
+plot(decomp_fc, main = "Forecasts for Daily Crime Counts using Decomposition", xlim = c(468, 523))
+lines(daily_test, col = 'red')
+legend("topright", lty = 1, col = c('blue', 'red'),
+       legend = c("Decomposition", "Actual Values"))
 
-
-
-# tbats with weekly, monthly and yearly periods
-daily_ts <- msts(daily_sums$count, start = 2006, seasonal.periods = c(7, 30, 365.25))
-daily_train <- window(daily_ts, start = 2006, end = 2015)
-daily_test <- window(daily_ts, start = 2015)
-
+####################################################################################
+# Tbat Forecast
 tbat_fit <- tbats(daily_train)
-# plot(tbat_fit)
-tbat_fc <- forecast(tbat_fit, h = 365)
-plot(tbat_fc, main = "Forecasts for Daily Crime Counts using Tbats")
-# lines(daily_test, col = 'red')
+tbat_fc <- forecast(tbat_fit, h = 18)
+plot(tbat_fc, main = "Forecast for Daily Crime Counts using Tbats", xlim = c(468, 523),
+     xlab = "Weeks since beginning of 2006")
+lines(daily_test, col = 'red')
+legend("topright", lty = 1, col = c('blue', 'red'),
+       legend = c("TBATS", "Actual Values"))
 
 d_tbats_acc <- accuracy(tbat_fc, daily_test)
 
+
+# arima with fourier terms to model longer seasonality
+fit <- auto.arima(daily_train, seasonal = FALSE, xreg = cbind(fourier(ts(daily_train, frequency = 30),K = 7),
+                                                              fourier(ts(daily_train, frequency = 365), K = 7),
+                                                                  fourier(daily_train, K = 3)))
+fit_f <- forecast(fit, xreg = cbind(fourier(ts(daily_train, frequency = 30), K = 7, 18),
+                                    fourier(ts(daily_train, frequency = 365), K = 7, 18),
+                                    fourier(daily_train, K = 3, 18)), h = 18)
+plot(fit_f, main = "Forecast for Daily Crime Counts using ARIMA + Fourier Terms", xlim = c(468, 523),
+     xlab = "Weeks since beginning of 2006")
+lines(daily_test, col = 'red')
+legend("topright", lty = 1, col = c('blue', 'red'),
+       legend = c("ARIMA + Fourier Terms", "Actual Values"))
+d_ari_acc <- accuracy(fit_f, daily_test)
+
+
 daily_acc_df <- data.frame(RMSE = c(d_mean_acc[2, 2], d_snaive_acc[2, 2], d_drift_acc[2, 2], 
-                              d_decomp_acc[2, 2], d_tbats_acc[2, 2]),
+                              d_decomp_acc[2, 2], d_tbats_acc[2, 2], d_ari_acc[2, 2]),
+                           MAPE = c(d_mean_acc[2, 5], d_snaive_acc[2, 5], d_drift_acc[2, 5], 
+                              d_decomp_acc[2, 5], d_tbats_acc[2, 5], d_ari_acc[2, 5]),
                      row.names = c("Mean", "Seasonal Naive", "Drift", "Decomposition",
-                                   "TBATS"))
+                                   "TBATS", "ARIMA + Fourier Terms"))
 daily_acc_df
 
+# #arima with covariates: scores ~35 RMSE
 
-# Regression with ARIMA errors
+# full_crime$season <- getSeason(full_crime$date)
+# daily_sums <- full_crime%>%
+#   filter(year >= 2006)%>%
+#   group_by(date, weekday, season)%>%
+#   summarise(count = n())%>%
+#   filter(date <= '2016-04-30')%>%
+#   mutate(is_weekday = ifelse(weekday == 'Weekday', 1, 0), is_summer = ifelse(season == 'Summer', 1, 0),
+#          is_winter = ifelse(season == 'Winter', 1, 0))
+# 
+# 
+# #creates daily time series with multiple periods; then creates train/test split
+# daily_ts <- msts(daily_sums[,4:7], seasonal.periods = c(7))
+# daily_train <- window(daily_ts, start = 1, end = 522.6)
+# daily_test <- window(daily_ts, start = 522.7)
+# 
+# fit <- auto.arima(daily_train[, 1], xreg = daily_train[,2:4])
+# fit_f <- forecast(fit, xreg = daily_test[, 2:4], h = 18)
+# plot(fit_f)
+# accuracy(fit_f, daily_test)
 
-
-# library(dygraphs)
-# 
-# # Round dates to the hour for time series grouping
-# crime_lou$rounded_date <- round(crime_lou$date_occured, units = 'hours')
-# 
-# # Create time series counts
-# crime_ts <- crime_lou%>%
-#   group_by(rounded_date = as.character(rounded_date))%>%
-#   summarise(count = as.numeric(n()))
-# 
-# # There are several hours that are missing which will cause problems creating xts objects
-# # It is easy to add those values in with zero values
-# time_index <- seq(from = as.POSIXct("2005-01-01 00:00:00"),to = as.POSIXct("2015-12-31 23:59:59"), by ='hour')
-# crime_ts <- left_join(data.frame(rounded_date = as.character(time_index)), crime_ts, by = 'rounded_date')
-# crime_ts$count[is.na(crime_ts$count)] <- 0
-# 
-# # Creates an xts object necessary for dygraphs
-# xts_ts <- xts::xts(crime_ts$count, order.by = time_index, frequency = 8766)
-# 
-# dygraph(xts_ts)%>%
-#   dyRangeSelector()
 ```
+
+All three models do a better job at forecasting the first 4 months of 2016 than the naive
+methods. Our MAPE improves about 3% over the baseline by using the ARIMA + Fourier terms
+model. It is clear visually that this model has the widest range of predictions. Given 
+how spiky our data is, this is probably why it has the best fit. 
+
+Unfortunately, this performance deteriorates rapidly as we project further into the future.
+Looking at the plots, it is clear we are still missing a good deal of the
+variablity. Just one example is that we never capture the peaks regardless of what
+model we use. 
+
+It should be noted that the best model varies depending on the forecasting
+period being looked at. The advanced models were always superior to the naive models,
+but which advanced model came out on top would change depending on the forecasting window.
 
 # Conclusion
-TO DO
+From our analysis it is clear that time plays a huge role in the number of criminal 
+offenses that are occuring at any given moment. Depending on the level of granularity
+we are dealing with, we can see hourly, weekly, monthly  and yearly seasonal effect.
+These effects are not felt equally by all crime types nor by all areas of the city.
+We can use this knowledge of seasonal effects to build time based forecasts that do a
+reasonably good job in predicting the number of crimes that will occur. I believe there 
+is still room to improve these purely time based models with a more nuanced treatment
+of the time series. With the complexities inherent in the calendar, it is quite likely
+that seasonal periods ending up shifted by a day here or there.  This would have profound
+effects on, especially, the daily forecasts.
 
-```{r plot_x_by_hour_function, echo = FALSE, cache = TRUE, warning = FALSE, message = FALSE}
-plot_x_by_hour <- function(df, variable){
-  df%>%
-    group_by_(variable, ~hour)%>%
-    summarise_(count = ~n())%>%
-    ggplot(aes(x = hour, y = count))+
-    geom_bar(stat = 'identity', fill = 'darkblue', alpha = .4)+
-    facet_wrap(variable)+
-    stat_smooth(method = 'auto', size = .7, alpha = .4, fill = "grey", colour = "red2")+
-    ggtitle("Hourly Crime Counts")+
-    scale_x_discrete(limits = seq(0, 23, by = 2))+
-    labs(x = "Hour", y = "Count")+
-    bar.theme+
-    theme(axis.text.x = element_text( size = 7))
-}
-# 
-# crime_lou%>%
-#   filter(crime_type == 'fraud')%>%
-#   group_by(crime_type, reporting)%>%
-#   summarise(count = n())%>%
-#   ggplot(aes(x = reporting, y = count))+
-#   geom_bar(stat = 'identity', fill = 'darkblue', alpha = .4)+
-#   facet_wrap(~crime_type)
-```
+With that said, this should be thought of as a first step into modeling these crime counts.
+There are numerous lines of inquiry to explore to see about making these models more accurate.
+One avenue is exploring the potential benefits of constructing additional dummy
+variable regressors for seemingly relevant data such as the occurance of a holiday or 
+any number of weather related events. The other is the inclusion of spatial data into the
+model through hierarchical time series modeling. With this approach, I would disaggregate
+the time series by something like zip codes and forecast each of these groups separately.
+These base forecasts would be aggregated to create an overall forecast. Both of these 
+approaches would incorporate significantly more information into the model and seem, intuitively,
+like they will perform better.
 
+As usual, the complete code for this analysis can be found [here](https://github.com/Grollus/LouisvilleCrime/blob/master/Exploring_Time_Aspect_of_Thefts.Rmd).
+Until next time!
 
 
