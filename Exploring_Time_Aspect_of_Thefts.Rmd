@@ -90,7 +90,9 @@ crime_lou <- crime_lou%>%
 # Introduction
 So far in this series, I have been concentrating on the spatial components of specific 
 crimes.  Today, I would like to begin exploring some time aspects of the 
-dataset. It is my impression that police departments assume crime ebbs and flows based on various
+dataset. As usual, the complete code for this analysis can be found [here](https://github.com/Grollus/LouisvilleCrime/blob/master/Exploring_Time_Aspect_of_Thefts.Rmd).
+
+It is my impression that police departments assume crime ebbs and flows based on various
 time variables. For instance, it is common to hear how crime is higher during the summer
 months or how crime rates rise at night. But, not being well versed in criminal procedures,
 I was curious whether this common knowledge was accurate or merely an outdated urban legend of sorts.
@@ -570,14 +572,14 @@ acc_df
 Now, let's look at some more advanced models. I will not delve into the details of these, 
 but I will provide links for those interested in more of the nitty gritty.  The first model
 is known as [exponential smoothing](https://www.otexts.org/fpp/7).  It is essentially a weighted average of historical
-observations, but the weights are decaying as they get older.  This means more recent 
+observations, but the weights decay as they get older.  This means more recent 
 observations become more important, which seems very logical for forecasting. I believe these
 models were developed to help address trend and seasonality issues in time series, so it 
 seems like they should do well with our highly seasonal crime counts.
 
-Second, I fit an [Autoregressive Integrated Moving Average (ARIMA)](https://www.otexts.org/fpp/8) model. 
+Second, is an [Autoregressive Integrated Moving Average (ARIMA)](https://www.otexts.org/fpp/8) model. 
 Unlike exponential smoothing, ARIMA models are looking at historical correlations of the variable of interest with itself
-at different periods in the past. These autocorrelation terms are combined with moving average
+at different periods in the past(also known as lags). These autocorrelation terms are combined with moving average
 terms  to form the ARIMA model. Since there is seasonality to the data, I use a seasonal ARIMA
 model. This incorporates seasonality by backshifting non-seasonal components by the seasonal
 period you specify to form seasonal terms. All these terms combine to form the full seasonal
@@ -591,7 +593,9 @@ $\hat{A}_{t}$ (where $\hat{A}_{t} = \hat{T}_{t} + \hat{E}_{t}$ for additive deco
 $\hat{A}_{t} = \hat{T}_{t}\hat{E}_{t}$ for multiplicative decomposition), we can use
 whatever non-seasonal method we choose. 
 
-Below are the resulting forecast plots (with 80 and 95 percent prediction intervals) and error metrics.
+Below are the resulting forecast plots (with 80 and 95 percent prediction intervals) and error metrics
+for the three models fit with the [forecast](https://cran.r-project.org/web/packages/forecast/index.html) 
+package. All these models are forecasting 6 months into the future.
 
 ```{r monthly_forecasts_adv_models, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
 # Exponential fit
@@ -708,7 +712,7 @@ with our best ARIMA + regressors model.
 
 ### Naive Baseline Forecasts
 As with our monthly forecasts, a solid baseline needs to be established to evaluate the
-usefulness of our model. The creation of the training and testing sets and the initial 
+usefulness of our models. The creation of the training and testing sets and the initial 
 baseline models are all identical to their monthly counterparts. 
 ```{r daily_forecasts_naive, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
 ####################################################################################
@@ -752,9 +756,9 @@ The above plot shows daily crime counts for the end of 2014 through about May of
 Once again, the naive forecasts are pretty poor, although this time the drift model performs
 best. Note that while the naive baseline for monthly counts had a MAPE below 5%, our daily 
 baseline is double that at `r round(d_drift_acc[2, 5], 1)`%. We are looking
-at a much more uncertain forecast, but that should not be surprising. Intuitively, I would 
+at a much more uncertain forecast, but that should not be surprising. Intuitively, we should
 expect more randomness in a daily measure. Aggregating over a longer period of time, that randomness 
-will become masked. 
+becomes masked. 
 
 ### Decomposition, TBATS and ARIMA Models
 
@@ -768,16 +772,18 @@ we have both complex seasonality and long seasonality and TBATS should do quite 
 of the technique is beyond the scope of this report, but can be found 
 [here](http://robjhyndman.com/papers/ComplexSeasonality.pdf).
 
-Our ARIMA model is similar to the one used in the monthly model, but we include fourier covariate terms 
+The ARIMA model is similar to the one used in the monthly model, but we include fourier covariate terms 
 to model the the multiple and long seasonal periods. By including these terms, we are able to better
 fit the jittery structure of the time series. For this data, I include fourier terms
 to model the yearly, monthly and weekly seasonality. A full discussion of the technique can be found 
 [here](http://robjhyndman.com/hyndsight/longseasonality/).
 
 Finally, a decomposition model was fit in the same manner as with the monthly data,
-but a larger 'window' is used. This is because our seasonal pattern seems to stay 
+but a larger 'window' was used. This is because our seasonal pattern seems to stay 
 constant through the years and a large window will tell the model to look at all the 
 data while fitting.
+
+Below are the forecast plots for the 3 models forecasting the first 4 months of 2016.
 
 ```{r daily_forecasts_adv, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
 ###################################################################################
@@ -786,7 +792,8 @@ d_decomp <- stl(daily_train, s.window = 365)
 
 decomp_fc <- forecast(d_decomp, h = 18)
 d_decomp_acc <- accuracy(decomp_fc, daily_test)
-plot(decomp_fc, main = "Forecasts for Daily Crime Counts using Decomposition", xlim = c(468, 523))
+plot(decomp_fc, main = "Forecasts for Daily Crime Counts using Decomposition", xlim = c(468, 523),
+     xlab = "Weeks since beginning of 2006")
 lines(daily_test, col = 'red')
 legend("topright", lty = 1, col = c('blue', 'red'),
        legend = c("Decomposition", "Actual Values"))
@@ -859,36 +866,38 @@ how spiky our data is, this is probably why it has the best fit.
 Unfortunately, this performance deteriorates rapidly as we project further into the future.
 Looking at the plots, it is clear we are still missing a good deal of the
 variablity. Just one example is that we never capture the peaks regardless of what
-model we use. 
+model we use.
 
-It should be noted that the best model varies depending on the forecasting
+It should be noted that the best model for this data varies depending on the forecasting
 period being looked at. The advanced models were always superior to the naive models,
 but which advanced model came out on top would change depending on the forecasting window.
 
 # Conclusion
 From our analysis it is clear that time plays a huge role in the number of criminal 
 offenses that are occuring at any given moment. Depending on the level of granularity
-we are dealing with, we can see hourly, weekly, monthly  and yearly seasonal effect.
+we are dealing with, we can see hourly, weekly, monthly  and yearly seasonal effects.
 These effects are not felt equally by all crime types nor by all areas of the city.
 We can use this knowledge of seasonal effects to build time based forecasts that do a
 reasonably good job in predicting the number of crimes that will occur. I believe there 
 is still room to improve these purely time based models with a more nuanced treatment
-of the time series. With the complexities inherent in the calendar, it is quite likely
-that seasonal periods ending up shifted by a day here or there.  This would have profound
+of the time series. With the complexities inherent in the calendar year, it is quite likely
+that seasonal periods ended up shifted by a day here or there.  This could have profound
 effects on, especially, the daily forecasts.
 
 With that said, this should be thought of as a first step into modeling these crime counts.
 There are numerous lines of inquiry to explore to see about making these models more accurate.
-One avenue is exploring the potential benefits of constructing additional dummy
-variable regressors for seemingly relevant data such as the occurance of a holiday or 
-any number of weather related events. The other is the inclusion of spatial data into the
+One potential avenue is to continue to explore the potential benefits of constructing dummy
+variable regressors. Adding relevant data--such as the occurance of a holiday or 
+the occurance of any number of weather related events--to the model will only help since we
+are currently ignoring known, important information. 
+
+Another area to explore is the inclusion of spatial data into the
 model through hierarchical time series modeling. With this approach, I would disaggregate
 the time series by something like zip codes and forecast each of these groups separately.
 These base forecasts would be aggregated to create an overall forecast. Both of these 
 approaches would incorporate significantly more information into the model and seem, intuitively,
 like they will perform better.
 
-As usual, the complete code for this analysis can be found [here](https://github.com/Grollus/LouisvilleCrime/blob/master/Exploring_Time_Aspect_of_Thefts.Rmd).
 Until next time!
 
 
