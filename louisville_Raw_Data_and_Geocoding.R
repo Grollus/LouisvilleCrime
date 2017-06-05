@@ -1,60 +1,171 @@
 library(readr)
 library(stringi)
 library(dplyr)
-
-
-#----------------------------------------------------------------------------------
-# Raw Data loaded and converted to lower case for readability
-# Dates converted to POSIXct format for date manipulation
-# Whitespace trimmed
-
-# raw_data <- read_csv("D:/RProgram/LouisvilleCrime/cityComparison/Crime_Data_All_Louisville.csv")
-# names(raw_data) <- tolower(names(raw_data))
-# raw_data <- data.frame(lapply(raw_data, tolower), stringsAsFactors = FALSE)
-# raw_data <- tbl_df(raw_data)
-# raw_data$date_occured <- as.POSIXct(raw_data$date_occured, format = "%Y-%m-%d %H:%M:%S")
-# raw_data$date_reported <- as.POSIXct(raw_data$date_reported, format = "%Y-%m-%d %H:%M:%S")
-# raw_data$uor_desc <- stri_trim_both(raw_data$uor_desc, pattern = "\\P{Wspace}")
-# raw_data$block_address <- stri_trim_both(raw_data$block_address, pattern = "\\P{Wspace}")
-# str(raw_data)
-
-# Turning this into a function for easier addition of new data
-data_import_and_clean <- function(csvfile){
-  raw_data <- read_csv(csvfile)
-  names(raw_data) <- tolower(names(raw_data))
-  raw_data <- data.frame(lapply(raw_data, tolower), stringsAsFactors = FALSE)
-  raw_data <- tbl_df(raw_data)
-  raw_data$date_occured <- as.POSIXct(raw_data$date_occured, format = "%Y-%m-%d %H:%M:%S")
-  raw_data$date_reported <- as.POSIXct(raw_data$date_reported, format = "%Y-%m-%d %H:%M:%S")
-  raw_data$uor_desc <- stri_trim_both(raw_data$uor_desc, pattern = "\\P{Wspace}")
-  raw_data$block_address <- stri_trim_both(raw_data$block_address, pattern = "\\P{Wspace}")
-  raw_data
-}
-
-raw_data <- data_import_and_clean("Crime_Data_2016_29.csv")
+library(lubridate)
 
 # ----------------------------------------------------------------------------------
-# Filtering raw data to remove characters that will trip up the geocoding. Then
+# Function to filter raw data to remove characters that will trip up the geocoding. Then
 # concatenating city and zip code with block address to form a full address for the
-# geocoding service.  Incidents without dates are removed.
+# geocoding service. Incidents with 'community at large|metro at large|pending location' location are 
+# removed as geocoding is impossible
 
 geocode_prep <- function(data){
-  data %>%
-    filter_(~!is.na(date_occured), ~!is.na(date_reported))%>%
-    mutate(geo_add = gsub("block |/.", "", block_address))%>%
-    mutate(full_address = paste(geo_add, "Louisville, KY", zip_code, sep = ", "))
+  
+   prepped_data <- data%>%
+    # Remove block addresses that don't provide enough infor to geocode
+    filter(block_address != "community at large", block_address != "pending location",
+            block_address != "metro at large")%>%
+     # Remove entries with troublesome geocoding characters
+    filter(stri_detect_regex(block_address, "#|@|\\.|\\(|\\)", negate = TRUE))%>%
+     # Remove extraneous 'block' from addresses--doesn't add anything and occasionally 
+     # messes up geocoding. After, remake the full address variable incorporating new info
+    mutate(block_address = stri_replace_all_regex(block_address, "block ", ""),
+           block_address = if_else(stri_detect_regex(block_address, "wf -"), "Waterfront Park", block_address),
+           # Addresses with '/' intersections are transformed to just the first street
+           # For a more complete analysis, some means of geocoding cross streets would
+           # need to be developed
+           block_address = stri_trim_both(stri_split_fixed(block_address, "/", simplify = TRUE)[,1], pattern = "\\P{Wspace}"),
+           full_address = paste0(block_address, ", Louisville, KY, ", zip_code))
 }
 
-raw_data <- geocode_prep(raw_data)
-# Non function version is no longer used
-# crime_lou <- raw_data %>%
-#   filter(!is.na(date_occured), !is.na(date_reported))
-# 
-# crime_lou <- crime_lou %>%
-#   mutate(geo_add = gsub("block |/.+", "", block_address))
-# 
-# crime_lou <- crime_lou %>%
-#   mutate(full_address = paste(geo_add, "Louisville, KY", zip_code, sep = ", "))
+#----------------------------------------------------------------------------------
+# Raw Data loaded and and various cleaning steps taken to prepare data for
+# geocoding and for later manipulation
+# Including option to perform the geocoding prep inside this function with geo.prep == TRUE
+
+data_import_and_clean <- function(csvfile, save.raw.data = FALSE,
+                                  create.date.vars = TRUE, label.crimes = TRUE, geo.prep = TRUE, ...){
+  csv_file_name <- csvfile
+  # Read csv into r
+  raw_data <- read_csv(csvfile)
+  
+  # Lowercase everything and trim whitespace from columns then convert to a tibble df
+  names(raw_data) <- tolower(names(raw_data))
+  raw_data <- data.frame(lapply(raw_data, tolower), stringsAsFactors = TRUE)
+  raw_data$uor_desc <- stri_trim_both(raw_data$uor_desc, pattern = "\\P{Wspace}")
+  raw_data$block_address <- stri_trim_both(raw_data$block_address, pattern = "\\P{Wspace}")
+  raw_data <- as_tibble(raw_data)
+  
+  if(save.raw.data == TRUE){
+    #Generates output filename based on the year of the original csv file
+    saved_file_name <- paste0("raw_data_", stri_split_fixed(stri_split_fixed(csv_file_name, "_")[[1]][3], ".")[[1]][1])
+    write_csv(raw_data, path = saved_file_name)
+  }
+  
+  # Convert date variables to POSIX 
+  # Entries with missing dates are removed
+  raw_data <- raw_data%>%
+    mutate(date_occured = as.POSIXct(raw_data$date_occured, format = "%Y-%m-%d %H:%M:%S"),
+           date_reported = as.POSIXct(raw_data$date_reported, format = "%Y-%m-%d %H:%M:%S"))%>%
+    filter_(~!is.na(date_occured), ~!is.na(date_reported))
+  
+  ## If create.date.vars == TRUE, create new variables for:
+    # --year
+    # --month
+    # --hour
+    # --day of week
+  if(create.date.vars == TRUE){
+    raw_data <- raw_data %>%
+      mutate(year_occured = year(raw_data$date_occured), 
+             year_reported = year(raw_data$date_reported),
+             month_occured = month(raw_data$date_occured, label = TRUE), 
+             month_reported = month(raw_data$date_reported, label = TRUE),
+             hour_occured = round(hour(raw_data$date_occured) + minute(raw_data$date_occured)/60, 0),
+             weekday = wday(raw_data$date_occured, label = TRUE, abbr = FALSE))
+  }
+  
+  ## add more specific crime labels based on the nibrs codes supplied
+  
+  if(label.crimes == TRUE){
+    nibrs_offenses <- data.frame(nibrs_offenses = c("Arson", "Aggravated Assault", "Simple Assault", "Intimidation",
+                                                    "Bribery", "Burglary/B&E", "Counterfeiting/Forgery", "Destruction/Damage/Vandalism of Property",
+                                                    "Drug/Narcotic Violations", "Drug/Narcotic Equip. Violations",
+                                                    "Embezzlement", "Extortion/Blackmail", "False Pretenses/Swindle/Confidence Games",
+                                                    "Credit Card/Automatic Teller Machine Fraud", "Impersonation",
+                                                    "Welfare Fraud", "Wire Fraud", "Betting/Wagering", "Operating/Promoting/Assisting Gambling",
+                                                    "Gambling Equip. Violations", "Sports Tampering", "Murder/Non-Negligent Manslaughter",
+                                                    "Negligent Manslaughter", "Justifiable Homicide", "Commercial Sex Acts",
+                                                    "Involuntary Servitude", "Kidnapping/Abduction", "Pocket Picking",
+                                                    "Purse Snatching", "Shoplifting", "Theft from Building", "Theft from Coin-Operated Machine or Device",
+                                                    "Theft from Motor Vehicle", "Theft of Motor Vehicle Parts or Accessories",
+                                                    "All Other Larceny"," Motor Vehicle Theft", "Pornography/Obscene Material",
+                                                    "Prostitution", "Assisting or Promoting Prostitution", "Purchasing Prostitution",
+                                                    "Robbery", "Rape", "Sodomy", "Sexual Assault with An Object", "Forcible Fondling",
+                                                    "Incent", "Statutory Rape", "Stolen Property Offenses", "Weapon Law Violations", 
+                                                    "Bad Checks", "Curfew/Loitering/Vagrancy Violations", "Disorderly Conduct",
+                                                    "Driving Under the Influence", "Drunkenness", "Family Offenses, Non-Violent",
+                                                    "Liquor Law Violations", "Peeping Tom", "Runaway", "Tresspassing", "All Other Offenses"),
+                                 nibrs_code = c("200", "13A", "13B", "13C", "510", "220", 
+                                                "250", "290", "35A", "35B", "270", "210", 
+                                                "26A", "26B", "26C", "26D", "26E", "39A", 
+                                                "39B", "39C", "39D", "09A", "09B", "09C",
+                                                "64A", "64B", "100", "23A", "23B", "23C", 
+                                                "23D", "23E", "23F", "23G", "23H", "240",
+                                                "370", "40A", "40B", "40C", "120", "11A",
+                                                "11B", "11C", "11D", "36A", "36B", "280",
+                                                "520", "90A", "90B", "90C", "90D", "90E",
+                                                "90F", "90G", "90H", "90I", "90J", "90Z"))
+    nibrs_offenses$nibrs_code <- as.factor(tolower(nibrs_offenses$nibrs_code))
+    # Different number of nibrs_codes in each df, so join the two together to include them all
+    # and avoid any errors in the join
+    combined_nibrs_codes <- sort(union(levels(nibrs_offenses$nibrs_code), levels(raw_data$nibrs_code)))
+    raw_data <- left_join(mutate(raw_data, nibrs_code = factor(nibrs_code, levels = combined_nibrs_codes)),
+                          mutate(nibrs_offenses, nibrs_code = factor(nibrs_code, levels = combined_nibrs_codes)))
+  }
+  
+  # Removing rows with zip codes that are not Louisville zip codes.
+  lou_zip <- c(40056, 40118, 40201, 40202, 40203, 40204, 40205, 40206,
+               40207, 40208, 40209, 40210, 40211, 40212, 40213, 40214, 
+               40215, 40216, 40217, 40218, 40219, 40220, 40221, 40222, 
+               40223, 40224, 40225, 40228, 40229, 40231, 40232, 40233, 
+               40241, 40242, 40243, 40245, 40250, 40251, 40252, 40253,
+               40255, 40256, 40257, 40258, 40259, 40261, 40266, 40268, 
+               40269, 40270, 40272, 40280, 40281, 40282, 40283, 40285, 
+               40287, 40289, 40290, 40291, 40292, 40293, 40294, 40295,
+               40296, 40297, 40298, 40299)
+  lou_zip <- as.factor(lou_zip)
+  raw_data <- raw_data%>%
+    filter(zip_code %in% lou_zip == TRUE)
+  
+  #####################################################################################
+  # Various data removed here after exploratory analysis
+  
+  # Reports with 'see accident module' as uor_despriction removed as it appears to be some preliminary
+  # report (so possibly duplicates). They are all labeled as 'other' crimes too, which
+  # doesn't yield useful info
+  # 'Preliminary report number' descriptions also removed
+  raw_data <- raw_data%>%
+    filter_(~uor_desc != "see accident module", ~uor_desc != "preliminary report number",
+            ~uor_desc != "report number not required", ~uor_desc != "any non criminal charge not covered by these codes",
+            ~uor_desc != "injured person requiring police report", ~uor_desc != "voided report number",
+            ~uor_desc != "cold case report number", ~uor_desc != "dv waiting on charge", ~uor_desc != "death investigation",
+            ~uor_desc != "non-criminal death (natural causes)")%>%
+    filter(stri_detect_fixed(uor_desc, 'pending', negate = TRUE))
+  
+  
+  # Call the Geocoding prep function to removing tricky geocoding characteristics from
+  # addresses. This can be called outside this function, but an option is included here
+  # for ease of use.
+  if(geo.prep == TRUE){
+    raw_data <- geocode_prep(raw_data, ...)%>%
+      select(incident_number, date_reported, date_occured, uor_desc, crime_type, nibrs_code,
+             att_comp, lmpd_division, lmpd_beat, premise_type, block_address,
+             zip_code, year_occured, year_reported, month_occured, month_reported,
+             hour_occured, weekday, nibrs_offenses, full_address)
+  }else{
+    raw_data %>%
+      select(incident_number, date_reported, date_occured, uor_desc, crime_type, nibrs_code,
+             att_comp, lmpd_division, lmpd_beat, premise_type, block_address,
+             zip_code, year_occured, year_reported, month_occured, month_reported,
+             hour_occured, weekday, nibrs_offenses)%>%
+      mutate(full_address = paste0(block_address, ", Louisville, KY, ", zip_code))
+  }
+  
+    
+}
+
+
+
 
 ##########################################################################################
 # Loading old geocoding results to use to cut down on new geocoding needed.
@@ -64,53 +175,41 @@ raw_data <- geocode_prep(raw_data)
 # script
 
 addresses_to_geocode <- function(data){
-  if(!exists("already_geocoded")){
-    already_geocoded <- readRDS("louCrime-app/Data/lou_shiny_data.rds")
+  if((exists("already_geocoded1") & exists("already_geocoded2"))== FALSE) {
+    already_geocoded1 <- as_tibble(readRDS("louCrime-app/Data/lou_shiny_data.rds"))
+    already_geocoded2 <- as_tibble(readRDS("input_temp_geocoded.rds"))
   }
   
-  geocoded_coords <- already_geocoded%>%
-    select(full_address, lat, lng)%>%
-    distinct(full_address, lat, lng)
+  already_geocoded2<- already_geocoded2%>%
+    filter(is.na(supplied_address) == FALSE, is.na(lat) == FALSE, is.na(lng) == FALSE)%>%
+    mutate(full_address = as.character(supplied_address))%>%
+    select(full_address, lat, lng)
+  
+  
+  already_geocoded1 <- already_geocoded1%>%
+    select(full_address,lat, lng)%>%
+    mutate(lat = as.character(lat), lng = as.character(lng))
+    
+  geocoded_coords <- bind_rows(already_geocoded1, already_geocoded2)%>%
+    distinct(full_address, .keep_all = TRUE)
   
   # Join the geocoded addresses with the new data so we can filter out those 
   # addresses missing lat/lng
-  new_data <- left_join(data, just_coords, by = 'full_address')
+  coord_join<- left_join(data, geocoded_coords, by = 'full_address')
   
   # # Filter out just the missing coords to be geocoded
-  missing_coords <- new_data%>%
+  missing_coords <- coord_join%>%
     filter(is.na(lat))%>%
     distinct(full_address)
 
   # write this dataframe of addresses to a file to be read by the geocoding script
-  #write_csv(missing_coords, "/home/adam/R/LouisvilleCrime/addresses_to_geocode.csv")
+  write_csv(missing_coords, "/home/adam/R/LouisvilleCrime/addresses_to_geocode2.csv")
 }
 
-# The google geocoding service is most robust, but also has a 2500/day limit
-# I tried a couple alternatives, but eventually decided to batch it into days
-# I geocode 2450 a day and then merge the results into the full dataset.
-# Below I load the temporary geocoding file and merge it into the full dataset
-geocoded_small1 <- readRDS("input_temp_geocoded.rds")
-geocoded_small2 <- readRDS("input_temp_geocoded2.rds")
-geocoded_small3 <- readRDS("input_temp_geocoded3.rds")
-geocoded_small4 <- readRDS("input_temp_geocoded4.rds")
-geocoded_small5 <- readRDS("input_temp_geocoded5.rds")
 
-geocoded_small_merged <- rbind(geocoded_small1, geocoded_small2, geocoded_small3,
-                               geocoded_small4, geocoded_small5)%>%
-  select(supplied_address, lat, lng)
-names(geocoded_small_merged)[names(geocoded_small_merged) == "supplied_address"] <- "full_address"
-
-just_coords <- rbind(just_coords, geocoded_small_merged)
-crime_lou <- left_join(crime_lou, just_coords, by = "full_address")
-
-# For some reason, this merge results in duplicate rows.  Filter to get rid of them
-# until I figure out the reason behind it.
-crime_lou <- crime_lou %>%
-  distinct(id)
-
-#----------------------------------------------------------------------------------
-
-
-#----------------------------------------------------------------------------------
-# Write this data set out to be used in other scripts
-write.csv(crime_lou, file = "crime_lou_with_geocoding.csv", row.names = FALSE)
+# #----------------------------------------------------------------------------------
+# 
+# 
+# #----------------------------------------------------------------------------------
+# # Write this data set out to be used in other scripts
+# write.csv(crime_lou, file = "crime_lou_with_geocoding.csv", row.names = FALSE)

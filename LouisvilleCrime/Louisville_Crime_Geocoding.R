@@ -3,8 +3,7 @@ library(data.table)
 library(dplyr)
 library(ggmap)
 # Set wd to LouisvilleCrime folder
-setwd("D:/RProgram/random_code/LouisvilleCrime")
-lou_clean <- fread("clean_louisville_crime.csv", data.table = FALSE)
+full_addresses <- fread("addresses_to_geocode.csv", data.table = FALSE)
 
 #-----------------------------------------------------------------------------------
 # Basic geocoding function
@@ -17,10 +16,6 @@ lou_clean <- fread("clean_louisville_crime.csv", data.table = FALSE)
   #   distinct(zip_code)
 # Geocoding full addresses now with dsk api
   # 2.52 ggmap allows use of dsk instead of google maps api
-full_addresses <- lou_clean %>%
-  select(full_address) %>%
-  distinct(full_address)
-
 
 geocodeResults <- function(address){
   # query using dsk api: should be no limit
