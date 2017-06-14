@@ -66,12 +66,16 @@ data_import_and_clean <- function(csvfile, save.raw.data = FALSE,
     # --day of week
   if(create.date.vars == TRUE){
     raw_data <- raw_data %>%
-      mutate(year_occured = year(raw_data$date_occured), 
+      mutate(year = year(raw_data$date_occured), 
              year_reported = year(raw_data$date_reported),
-             month_occured = month(raw_data$date_occured, label = TRUE), 
+             month = month(raw_data$date_occured, label = TRUE), 
              month_reported = month(raw_data$date_reported, label = TRUE),
-             hour_occured = round(hour(raw_data$date_occured) + minute(raw_data$date_occured)/60, 0),
-             weekday = wday(raw_data$date_occured, label = TRUE, abbr = FALSE))
+             day = day(raw_data$date_occured),
+             hour = round(hour(raw_data$date_occured) + minute(raw_data$date_occured)/60, 0),
+             day_of_week = wday(raw_data$date_occured, label = TRUE, abbr = FALSE),
+             weekday = ifelse(day_of_week == "Saturday" | day_of_week == "Sunday",
+                              "Weekend", "Weekday"),
+             yday = yday(raw_data$date_occured))
   }
   
   ## add more specific crime labels based on the nibrs codes supplied
@@ -146,9 +150,9 @@ data_import_and_clean <- function(csvfile, save.raw.data = FALSE,
   # selects rows to return, including creating a 'full_address' variable with zip/city/state
   raw_data %>%
     select(incident_number, date_reported, date_occured, uor_desc, crime_type, nibrs_code,
-             att_comp, lmpd_division, lmpd_beat, premise_type, block_address,
-             zip_code, year_occured, year_reported, month_occured, month_reported,
-             hour_occured, weekday, nibrs_offenses)%>%
+           att_comp, lmpd_division, lmpd_beat, premise_type, block_address,
+           zip_code, year, year_reported, month, month_reported, day, hour,
+           day_of_week, weekday, yday, nibrs_offenses)%>%
     mutate(full_address = paste0(block_address, ", Louisville, KY, ", zip_code))
   
 }

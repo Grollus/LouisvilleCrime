@@ -37,7 +37,10 @@ addresses_wcoords <- read_csv("addresses_and_coords.csv")
 
 full_data_with_coords <- left_join(full_data, addresses_wcoords, by = 'full_address')
 
-# Write this dataset to csv file. This 
+# Write this dataset to csv file. This mainly for compatibility with python for later.
 write_csv(full_data_with_coords, path = "lou_crime_geocoded_df.csv")
+
+# Also write to rds file for quicker reading
+write_rds(full_data_with_coords, path = "lou_crime_geocoded_df.rds")
 
 
