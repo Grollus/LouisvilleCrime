@@ -12,11 +12,11 @@ library(lubridate)
 geocode_prep <- function(data){
   
    prepped_data <- data%>%
-    # Remove block addresses that don't provide enough infor to geocode
+    # Remove block addresses that don't provide enough info to geocode
     filter(block_address != "community at large", block_address != "pending location",
             block_address != "metro at large")%>%
      # Remove entries with troublesome geocoding characters
-    filter(stri_detect_regex(block_address, "#|@|\\.|\\(|\\)", negate = TRUE))%>%
+    filter(stri_detect_regex(block_address, "&|#|@|\\.|\\(|\\)", negate = TRUE))%>%
      # Remove extraneous 'block' from addresses--doesn't add anything and occasionally 
      # messes up geocoding. After, remake the full address variable incorporating new info
     mutate(block_address = stri_replace_all_regex(block_address, "block ", ""),
@@ -31,12 +31,12 @@ geocode_prep <- function(data){
 #----------------------------------------------------------------------------------
 # Raw Data loaded and and various cleaning steps taken to prepare data for
 # geocoding and for later manipulation
-# Including option to perform the geocoding prep inside this function with geo.prep == TRUE
 
 data_import_and_clean <- function(csvfile, save.raw.data = FALSE,
-                                  create.date.vars = TRUE, label.crimes = TRUE, geo.prep = TRUE, ...){
+                                  create.date.vars = TRUE, label.crimes = TRUE, ...){
   csv_file_name <- csvfile
   # Read csv into r
+  
   raw_data <- read_csv(csvfile)
   
   # Lowercase everything and trim whitespace from columns then convert to a tibble df
@@ -141,33 +141,21 @@ data_import_and_clean <- function(csvfile, save.raw.data = FALSE,
             ~uor_desc != "cold case report number", ~uor_desc != "dv waiting on charge", ~uor_desc != "death investigation",
             ~uor_desc != "non-criminal death (natural causes)")%>%
     filter(stri_detect_fixed(uor_desc, 'pending', negate = TRUE))
-  
-  
-  # Call the Geocoding prep function to removing tricky geocoding characteristics from
-  # addresses. This can be called outside this function, but an option is included here
-  # for ease of use.
-  if(geo.prep == TRUE){
-    raw_data <- geocode_prep(raw_data, ...)%>%
-      select(incident_number, date_reported, date_occured, uor_desc, crime_type, nibrs_code,
-             att_comp, lmpd_division, lmpd_beat, premise_type, block_address,
-             zip_code, year_occured, year_reported, month_occured, month_reported,
-             hour_occured, weekday, nibrs_offenses, full_address)
-  }else{
-    raw_data %>%
-      select(incident_number, date_reported, date_occured, uor_desc, crime_type, nibrs_code,
+
+
+  # selects rows to return, including creating a 'full_address' variable with zip/city/state
+  raw_data %>%
+    select(incident_number, date_reported, date_occured, uor_desc, crime_type, nibrs_code,
              att_comp, lmpd_division, lmpd_beat, premise_type, block_address,
              zip_code, year_occured, year_reported, month_occured, month_reported,
              hour_occured, weekday, nibrs_offenses)%>%
-      mutate(full_address = paste0(block_address, ", Louisville, KY, ", zip_code))
-  }
+    mutate(full_address = paste0(block_address, ", Louisville, KY, ", zip_code))
   
-    
 }
 
 
 
-
-##########################################################################################
+#----------------------------------------------------------------------------------
 # Loading old geocoding results to use to cut down on new geocoding needed.
 # Then I select out just the lat/lng and the full address to use to join back with
 # the full data set so I can see what addressess need geocoding
@@ -175,40 +163,42 @@ data_import_and_clean <- function(csvfile, save.raw.data = FALSE,
 # script
 
 addresses_to_geocode <- function(data){
-  if((exists("already_geocoded1") & exists("already_geocoded2"))== FALSE) {
-    already_geocoded1 <- as_tibble(readRDS("louCrime-app/Data/lou_shiny_data.rds"))
-    already_geocoded2 <- as_tibble(readRDS("input_temp_geocoded.rds"))
+  if(exists("already_geocoded")== FALSE) {
+    already_geocoded <- as_tibble(read_csv("addresses_and_coords.csv"))
   }
   
-  already_geocoded2<- already_geocoded2%>%
-    filter(is.na(supplied_address) == FALSE, is.na(lat) == FALSE, is.na(lng) == FALSE)%>%
-    mutate(full_address = as.character(supplied_address))%>%
-    select(full_address, lat, lng)
   
-  
-  already_geocoded1 <- already_geocoded1%>%
-    select(full_address,lat, lng)%>%
+  ag<- already_geocoded%>%
+    filter(is.na(full_address) == FALSE, is.na(lat) == FALSE, is.na(lng) == FALSE)%>%
     mutate(lat = as.character(lat), lng = as.character(lng))
-    
-  geocoded_coords <- bind_rows(already_geocoded1, already_geocoded2)%>%
-    distinct(full_address, .keep_all = TRUE)
+
   
   # Join the geocoded addresses with the new data so we can filter out those 
   # addresses missing lat/lng
-  coord_join<- left_join(data, geocoded_coords, by = 'full_address')
+  coord_join <- left_join(data, ag, by = 'full_address')
   
   # # Filter out just the missing coords to be geocoded
   missing_coords <- coord_join%>%
     filter(is.na(lat))%>%
     distinct(full_address)
-
-  # write this dataframe of addresses to a file to be read by the geocoding script
-  write_csv(missing_coords, "/home/adam/R/LouisvilleCrime/addresses_to_geocode2.csv")
+  
+  # If there are addresses that need coords, write to a csv file to be used by the geocoding
+  # script
+  if(!nrow(missing_coords)){
+    print("No new addresses to geocode.")
+  }else{
+    # write this dataframe of addresses to a file to be read by the geocoding script
+    write_csv(missing_coords, "/home/adam/R/LouisvilleCrime/addresses_to_geocode.csv")
+  }
+  
 }
 
 
-# #----------------------------------------------------------------------------------
-# 
+############################################################################################
+# write the resulting cleaned data frame to a csv file for use elsewhere
+save_clean_data <- function(data){
+  write_csv(data, path = "lou_crime_without_coords.csv")
+}
 # 
 # #----------------------------------------------------------------------------------
 # # Write this data set out to be used in other scripts
