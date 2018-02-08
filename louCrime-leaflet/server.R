@@ -67,7 +67,7 @@ shinyServer(function(input, output){
 #                    clusterOptions = markerClusterOptions()
 #         )
 #     }
-    louisville <- geocode("Louisville", source = "google")
+    louisville <- geocode("Louisville", source = "dsk")
     
     leaflet()%>%
       setView(lng = louisville[1], lat = louisville[2], zoom = 13)%>%

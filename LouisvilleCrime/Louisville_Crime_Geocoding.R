@@ -4,7 +4,7 @@ library(dplyr)
 library(ggmap)
 library(readr)
 # Set wd to LouisvilleCrime folder
-full_addresses <- fread("addresses_to_geocode.csv", data.table = FALSE)
+#full_addresses <- fread("addresses_to_geocode.csv", data.table = FALSE)
 
 #-----------------------------------------------------------------------------------
 # Basic geocoding function
@@ -53,6 +53,7 @@ geocodeResults <- function(address){
   
 }
 
+full_addresses <- fread('missing_coords.csv', data.table = FALSE)
 # initializing the data frame for the results
   geocoded <- data.frame()
   # looking for existing temp file. if it exists find where it left off and start

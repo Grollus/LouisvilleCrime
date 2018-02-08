@@ -13,7 +13,7 @@ shinyUI(fluidPage(
 #                helpText("Examples: 40211, Shively, 	101 E Main St, etc."),
 #                actionButton("update", "Update Map"),
                sliderInput("year", "Display Year",
-                           min = 1995, max = 2015, value = 2015, step = 1),
+                           min = 1995, max = 2015, value = c(2014, 2015), step = 1),
                selectInput("month", "Display Month", 
                            choices = c("All", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")), # TODO expand to seasons. Need basic functionality first

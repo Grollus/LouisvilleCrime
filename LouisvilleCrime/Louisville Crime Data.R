@@ -5,7 +5,7 @@ unzip("AssaultedOfficerData.zip")
 library(data.table)
 library(dplyr)
 
-crime_raw <- fread("Crime_Data_All.csv", stringsAsFactors = FALSE, 
+crime_raw <- fread("Crime_Data_2016_29.csv", stringsAsFactors = FALSE, 
                    data.table = FALSE)
 assaulted_officers_raw <- fread("AssaultedOfficerData.csv", stringsAsFactors = FALSE,
                                 data.table = FALSE)
@@ -74,7 +74,7 @@ crime_lou <- crime_raw %>%
 
 # How many rows contain an address with the format '/'?
 sum(grepl("/", crime_lou$block_address))/nrow(crime_lou) # so 15.9% of data has 
-                                                         # and address of this form
+                                                         # an address of this form
 
 # How many contain 'block"? The rest?
 sum(grepl("block", crime_lou$block_address))/ nrow(crime_lou) #78.5%
@@ -84,7 +84,7 @@ no_block_address <- crime_lou%>%
   filter(grepl("/", crime_lou$block_address) == FALSE,
          grepl("block", crime_lou$block_address) == FALSE)
 # These seem to be general 'zone' listings. Testing them out, some are geocodable,
-# some are not ???
+# some are not ???sum
 
 
 

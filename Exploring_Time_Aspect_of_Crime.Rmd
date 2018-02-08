@@ -10,57 +10,32 @@ library(readr)
 library(printr)
 library(gridExtra)
 library(grid)
+library(gtable)
 options(scipen = 999)
 ```
 
 ```{r raw_data, echo = FALSE, cache = TRUE, warning = FALSE, message = FALSE}
 # Raw data is from earlier work done 
 # here https://github.com/Grollus/LouisvilleCrime/blob/master/louisville_Raw_Data_and_Geocoding.R
-raw_data <- read_csv("crime_lou_with_geocoding.csv")
+raw_data <- read_rds("lou_crime_geocoded_df.rds.gzip")
 
 # Creates a number of useful date variables from POSIXct object
 create_date_variables <- function(df){
   require(lubridate)
   # Uses the POSIXct date_occured variable to create useful date related
   # subvariables
-  df$year <- year(df$date_occured)
-  df$month <- month(df$date_occured)
-  df$day <- day(df$date_occured)
-  df$hour <- hour(df$date_occured)
   df$year_month <- paste(df$year, df$month, sep = '-')
-  df$day_of_week <- wday(df$date_occured, label = TRUE, abbr = FALSE)
-  df$weekday <- ifelse(df$day_of_week == "Saturday" | df$day_of_week == "Sunday", 
-                              "Weekend", "Weekday")
-  df$yday <- yday(df$date_occured)
   df$date <- as.Date(df$date_occured)
   df$week <- week(df$date_occured)
   
   return(df)
 }
 
-# Temporary alteration of date variation function- made to use reported date instead of occured date
-create_date_variables2 <- function(df){
-  require(lubridate)
-  # Uses the POSIXct date_occured variable to create useful date related
-  # subvariables
-  df$year <- year(df$date_reported)
-  df$month <- month(df$date_reported)
-  df$day <- day(df$date_reported)
-  df$hour <- hour(df$date_reported)
-  df$year_month <- paste(df$year, df$month, sep = '-')
-  df$day_of_week <- wday(df$date_reported, label = TRUE, abbr = FALSE)
-  df$weekday <- ifelse(df$day_of_week == "Saturday" | df$day_of_week == "Sunday", 
-                              "Weekend", "Weekday")
-  df$yday <- yday(df$date_reported)
-  df$date <- as.Date(df$date_reported)
-  
-  return(df)
-}
 #create season variable based on 2016 season dates
 getSeason <- function(dates){
   winter <- as.Date("2016-12-21", format = "%Y-%m-%d")
   spring <- as.Date("2016-3-20", format = "%Y-%m-%d")
-  summer <- as.Date("2016-6-20", format = "%Y-%m-%d")
+  summer <- as.Date("2016-6-21", format = "%Y-%m-%d")
   fall <- as.Date("2016-9-22", format = "%Y-%m-%d")
   
   d <- as.Date(strftime(dates, format = "2016-%m-%d"))
@@ -82,10 +57,10 @@ zips <- html_text(zips)
 
 # Filtering the crimes to only include official, standard, USPS zip_codes for Louisville.
 # This gets rid of about 43000 records that seem to have mislabeled or unusual 
-# zip code data. Also went ahead and filtered to the 2005-2015 data -- while
+# zip code data. Also went ahead and filtered to the 2007-2016 data -- while
 # earlier data exists, it is sparse.
 crime_lou <- crime_lou%>%
-  filter(zip_code %in% zips & year >= 2005 & year <= 2015)
+  filter(zip_code %in% zips & year >= 2007 & year <= 2016)
 ```
 # Introduction
 So far in this series, I have been concentrating on the spatial components of specific 
@@ -124,27 +99,27 @@ a good starting point.
 by_dow <- crime_lou%>%
   group_by(day_of_week)%>%
   summarise(count = n())%>%
-  mutate(perc_below_max = round(((max(count)/count)-1)*100, 2))
+  mutate(perc_below_max = round(((max(count)/count)-1)*100, 1))
 
 by_month <- crime_lou%>%
   group_by(month)%>%
   summarise(count = n())%>%
-  mutate(perc_below_max = round(((max(count)/count)-1)*100, 2))
+  mutate(perc_below_max = round(((max(count)/count)-1)*100, 1))
 
 by_hour <- crime_lou%>%
   group_by(hour)%>%
   summarise(count = n())
 
-n <- length(by_hour$count)
-midnight_peak <- round(((max(by_hour$count)/sort(by_hour$count, partial = n-1)[n-1])-1) *100,2)
+
+midnight_peak <- round(((max(by_hour$count)/by_hour[by_hour$hour == 0,]$count) -1) *100, 1)
 
 by_day <- crime_lou%>%
   group_by(day)%>%
   summarise(count = n())
 
 d <- length(by_day$count)
-first_day_peak <- round(((max(by_day$count)/sort(by_day$count, partial = d-1)[d-1])-1) *100,2)
-last_day_valley <- -round(((min(by_day$count)/sort(by_day$count, partial = d-1)[d-1])-1) *100,2)
+first_day_peak <- round(((max(by_day$count)/sort(by_day$count, partial = d-1)[d-1])-1) *100, 1)
+last_day_valley <- -round(((min(by_day$count)/sort(by_day$count, partial = d-1)[d-1])-1) *100, 1)
 ```
 As you can see, there is a gradual increase in crime throughout the week up to Friday
 (from Sunday to Friday we see a `r by_dow$perc_below_max[by_dow$day_of_week == 'Sunday']`% increase),
@@ -153,18 +128,17 @@ levels on the weekend when people had less to occupy their time.  But that goes 
 why you always need to look at the data first.
 
 The monthly figures are about as I expected with a peak during high summer in July and August and
-a gradual falling off on either side. We see a `r by_month$perc_below_max[by_month$month == '2']`%
+a gradual falling off on either side. We see a `r by_month$perc_below_max[by_month$month == 'Feb']`%
 rise from the minimum in February to the max in August. January does seem to be oddly high, but 
 I believe this is related to record keeping procedures we will delve into in a moment.
 
 In the hourly plot, two things are immediately apparent.  One, there is a definite hourly trend present.
 Basically, more crimes are committed during the time when most people are awake.  This makes a lot of sense,
-but is not particularly insightful.  More interesting is the odd peak at 0 (midnight).
-It might make sense that certain crimes are more prevalent during the late hours--for instance dui--
+but is not particularly insightful.  More interesting is the odd spike at 0 (midnight).
+It could make sense that certain crimes are more prevalent during the late hours--for instance dui--
 but a) this peak seems well above what you would expect for a couple crimes being more popular at night
 and more importantly b) the surrounding hours don't show any signs of higher activity levels.
-In fact, the midnight count is `r midnight_peak`% higher than the 'secondary' peak at hour
-16. 
+In fact, the midnight count is only `r midnight_peak`% off the max (right around 6pm).
 
 It is illustrative to examine the daily plot before exploring in depth what is going on with the hourly 
 counts.  Two data points jump out when viewing this plot--the first and last bars.  Similar to the 
@@ -176,7 +150,7 @@ seem to be. If we were to discard the first and last days of the month, we would
 very little evidence of any periodic effect.
 
 
-```{r hdwm_full_dataset, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
+```{r hdwm_full_dataset, echo = FALSE, cache = TRUE, out.width = '100%', warning = FALSE, message = FALSE}
 library(grid)
 bar.theme <- 
   theme(legend.position = "none")+
@@ -184,8 +158,10 @@ bar.theme <-
   theme(axis.title = element_text(size = 12, family = "serif", face = 'bold', hjust = 0, color = "#666666"))+
   theme(axis.title.y = element_text(angle = 90))+
   theme(axis.title.x = element_text(hjust = 0, vjust = 0.5))+
-  theme(axis.text.x = element_text(size = 5))+
+  theme(axis.text.x = element_text(size = 5),
+        axis.text.y = element_text(size = 6))+
   theme_bw()
+
 
 # create hourly, daily, dow and monthly count plots. These are being used to illustrate
 # various time periods present in the data
@@ -193,8 +169,8 @@ hourly <- crime_lou%>%
   group_by(hour)%>%
   summarise(count = n())%>%
   ggplot(aes(x = hour, y = count))+
-  geom_bar(stat = 'identity', fill = 'darkblue', alpha = .4)+
-  stat_smooth(method = 'auto', size = .6, alpha = .4, fill = "grey", colour = "red2")+
+  geom_bar(stat = 'identity', fill = 'darkblue', alpha = .5, color = 'black', size = 0.28)+
+  stat_smooth(method = 'auto', size = .25, alpha = .25, fill = "grey", colour = "red2")+
   scale_x_discrete(limits = seq(0, 23, by = 1))+
   labs(x = "Hour", y = "Count")+
   bar.theme
@@ -203,8 +179,8 @@ daily <- crime_lou%>%
   group_by(day)%>%
   summarise(count = n())%>%
   ggplot(aes(x = day, y = count))+
-  geom_bar(stat = 'identity', fill = 'darkblue', alpha = .4)+
-  stat_smooth(method = 'auto', size = .6, alpha = .4, fill = "grey", colour = "red2")+
+  geom_bar(stat = 'identity', fill = 'darkblue', alpha = .5, color = 'black', size = .25)+
+  stat_smooth(method = 'auto', size = .25, alpha = .25, fill = "grey", colour = "red2")+
   scale_x_discrete(limits = seq(1, 31, by = 1))+
   labs(x = "Day", y = "")+
   bar.theme
@@ -213,8 +189,8 @@ dayOfWeek <- crime_lou%>%
   group_by(day_of_week)%>%
   summarise(count = n())%>%
   ggplot(aes(x = day_of_week, y = count))+
-  geom_bar(stat = 'identity', fill = 'darkblue', alpha = .4)+
-  stat_smooth(method = 'auto', size = .6, alpha = .4, fill = "grey", colour = "red2")+
+  geom_bar(stat = 'identity', fill = 'darkblue', alpha = .5, color = 'black', size = .3)+
+  stat_smooth(method = 'auto', size = .25, alpha = .25, fill = "grey", colour = "red2")+
   labs(x = "Day of Week", y = "Count")+
   bar.theme
 
@@ -222,8 +198,8 @@ monthly <- crime_lou%>%
   group_by(month)%>%
   summarise(count = n())%>%
   ggplot(aes(x = month, y = count))+
-  geom_bar(stat = 'identity', fill = 'darkblue', alpha = .4)+
-  stat_smooth(method = 'auto', size = .6, alpha = .4, fill = "grey", colour = "red2")+
+  geom_bar(stat = 'identity', fill = 'darkblue', alpha = .5, color = 'black', size = .3)+
+  stat_smooth(method = 'lm', size = .25, alpha = .25, fill = "grey", colour = "red2")+
   scale_x_discrete(limits = month.abb)+
   labs(x = "Month", y = "")+
   bar.theme
@@ -239,6 +215,10 @@ grid.arrange(dayOfWeek, monthly, hourly, daily, ncol = 2, top = textGrob("Crime 
 ```
 
 ### Investigation of Reporting Anomalies
+THIS ANALYSIS SEEMS OUTDATED/WRONG. IF YOU PLOT THE PAST DECADE BY MONTH,
+YOU SEE EXTREMELY CONSISTENT DATA ON EVERY DAY EXCEPT THE FIRST OF EACH MONTH.
+I NEED TO ADJUST THIS SECTION TO TALK ABOUT THAT.
+
 After some thought, the last day of the month valley seems like it could be one of two 
 things (and most probably a combination of both). One possibility is the varying number of days in a month results in skewed counts 
 for the last couple days (particularly the 30th and 31st). In other words, since not 
@@ -253,21 +233,21 @@ month has a spike of crime. In fact, if we take a single year and look at the da
 and day, we can see this cycle. Although a time series plot is probably more appropriate,
 a bar plot illustrates the cycle a little better here.
 
-```{r, 2015_month_x_day, echo = FALSE, cache = TRUE,out.width = '1100px', warning = FALSE, message = FALSE}
+```{r, 2016_month_x_day, echo = FALSE, cache = TRUE,out.width = '100%', warning = FALSE, message = FALSE}
 crime_lou%>%
-  filter(year == 2015)%>%
+  # filter(year == 2016)%>%
   group_by(month, day)%>%
   summarise(count = n())%>%
   ggplot(aes(x = day, y = count))+
-  geom_bar(stat = 'identity', fill = 'darkblue', alpha = .4)+
+  geom_bar(stat = 'identity', fill = 'darkblue', alpha = .5, color = 'black', size = .26)+
   facet_wrap(~month)+
-  stat_smooth(method = 'auto', size = .6, alpha = .4, fill = 'grey', colour = 'red2')+
-  scale_x_discrete(limits = seq(1, 31, by = 2))+
+  stat_smooth(method = 'auto', size = .25, alpha = .25, fill = 'grey', colour = 'red2')+
+  scale_x_discrete(limits = seq(1, 30, by = 2))+
   labs(x = "Day", y = "")+
-  ggtitle("Daily Crime Counts for 2015, by Month")+
+  ggtitle("Daily Crime Counts for 2016, by Month")+
   bar.theme+
   theme(axis.text.x = element_text(size = 5))+
-  theme(strip.background = element_rect(fill = 'white'),
+  theme(strip.background = element_rect(fill = 'white', size = .25),
         strip.text.x = element_text(size = 6))
 
 fifteen <- crime_lou%>%
@@ -302,28 +282,37 @@ levels(crime_lou$reporting) <- list(Neg = '[-1e+05,0)', "< 2 Days" = '[0,2)', '<
                                     '< 2 Weeks' = '[8,15)', '< 1 Month' = '[15,31)', '< 1 Year' = '[31,365)',
                                     '> 1 Year' = '[365,4.07e+03]')
 
-crime_lou%>%
-  group_by(hour, reporting)%>%
-  summarise(count = n())%>%
-  ggplot(aes(x = reporting, y = count))+
-  geom_bar(stat = 'identity', fill = 'darkblue', alpha = .4)+
-  facet_wrap(~hour)+
-  stat_smooth(method = 'auto', size = .6, alpha = .4, fill = 'grey', colour = 'red2')+
-  ggtitle("Length of Reporting Gap, by Hour")+
-  labs(x = "", y = "")+
-  bar.theme+
-  theme(axis.text.x = element_text(size = 6, angle = 90, vjust = 0))+
-  theme(axis.text.y = element_text(size = 7))+
-  theme(strip.background = element_rect(fill = 'white'),
-        strip.text.x = element_text(size = 6))
 
-crime_lou%>%
+# p1 <- crime_lou%>%
+#   group_by(hour, reporting)%>%
+#   summarise(count = n())%>%
+#   ggplot(aes(x = reporting, y = count))+
+#   geom_bar(stat = 'identity', fill = 'darkblue', alpha = .5, color = 'black', size = .2)+
+#   facet_wrap(~hour)+
+#   ggtitle("Length of Reporting Gap, by Hour")+
+#   labs(x = "", y = "")+
+#   bar.theme+
+#   theme(axis.text.x = element_text(size = 6, angle = 90, vjust = 0))+
+#   theme(axis.text.y = element_text(size = 7))+
+#   theme(strip.background = element_rect(fill = 'white'),
+#         strip.text.x = element_text(size = 6))
+# 
+# g1 <- ggplotGrob(p1)
+# 
+# pos1 <- c(subset(g1$layout, grepl('panel', g1$layout$name), select = t))
+# for(i in pos1) g1$heights[i-1] = unit(0.3, 'cm')
+# 
+# grobs1 <- which(grepl('strip', g1$layout$name))
+# for(i in grobs1) g1$grobs1[[i]]$heights <- unit(1, 'npc')
+# grid::grid.newpage()
+# grid::grid.draw(g1)
+
+p2 <- crime_lou%>%
   group_by(day, reporting)%>%
   summarise(count = n())%>%
   ggplot(aes(x = reporting, y = count))+
-  geom_bar(stat = 'identity', fill = 'darkblue', alpha = .4)+
+  geom_bar(stat = 'identity', fill = 'darkblue', alpha = .5, color = 'black', size = .20)+
   facet_wrap(~day)+
-  stat_smooth(method = 'auto', size = .6, alpha = .4, fill = 'grey', colour = 'red2')+
   ggtitle("Length of Reporting Gap, by Day")+
   labs(x = "", y = "")+
   bar.theme+
@@ -331,6 +320,17 @@ crime_lou%>%
   theme(axis.text.y = element_text(size = 7))+
   theme(strip.background = element_rect(fill = 'white'),
         strip.text.x = element_text(size = 6))
+
+# Want to make the facet heading thinner so plots are a little more readable
+g2<- ggplotGrob(p2)
+
+pos2 <- c(subset(g2$layout, grepl('panel', g2$layout$name), select = t))
+for(i in pos2) g2$heights[i-1] = unit(0.3, 'cm')
+
+grobs <- which(grepl('strip', g2$layout$name))
+for(i in grobs) g2$grobs[[i]]$heights <- unit(1, 'npc')
+grid::grid.newpage()
+grid::grid.draw(g2)
 ```
 
 As you can see, most crimes are reported within a day of occurring. However, crimes that are not reported
@@ -366,23 +366,23 @@ and burglary--two seemingly related theft offenses--have wildly different hourly
 variation, but very similar monthly variation. 
 
 
-```{r hwm_ind_crimes, fig.height = 7.5, echo = FALSE, cache = TRUE, out.width = '1100px', out.height = '1100px', warning = FALSE, message = FALSE}
+```{r hwm_ind_crimes, echo = FALSE, cache = TRUE, out.width = '100%', out.height = '100%', warning = FALSE, message = FALSE}
 library(grid)
 plot_x_by_hour <- function(df, variable, color){
   df%>%
     group_by_(variable, ~hour)%>%
     summarise_(count = ~n())%>%
     ggplot(aes(x = hour, y = count))+
-    geom_bar(stat = 'identity', fill = color, alpha = .4)+
+    geom_bar(stat = 'identity', fill = color, alpha = .5, color = 'black', size = .25)+
     facet_grid(variable, scales = 'free_y')+
-    stat_smooth(method = 'auto', size = .7, alpha = .4, fill = "grey", colour = "red2")+
+    stat_smooth(method = 'auto', size = .25, alpha = .3, fill = "grey", colour = "red2")+
     ggtitle("Hourly Crime Counts")+
     scale_x_discrete(limits = seq(0, 23, by = 2))+
     labs(x = "Hour", y = "Count")+
     bar.theme+
     theme(axis.text.x = element_text( size = 5))+
     theme(strip.background = element_rect(fill = 'white'),
-        strip.text.x = element_text(size = 10))
+          strip.text.x = element_text(size = 8))
 }
 
 plot_x_by_day_of_week <- function(df, variable, color){
@@ -396,9 +396,8 @@ plot_x_by_day_of_week <- function(df, variable, color){
                                                      ifelse(day_of_week == "Thursday", "Thu",
                                                             ifelse(day_of_week == "Friday", "Fri", "Sat")))))))%>%
     ggplot(aes(x = factor(day_of_week, levels = c("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")), y = count))+
-    geom_bar(stat = 'identity', fill = color, alpha = .4)+
+    geom_bar(stat = 'identity', fill = color, alpha = .5, color = 'black', size = .25)+
     facet_wrap(variable)+
-    stat_smooth(method = 'auto', size = .7, alpha = .4, fill = "grey", colour = "red2")+
     ggtitle("Crime Counts by Day of Week")+
     labs(x = "Day of Week", y = "Count")+
     bar.theme+
@@ -412,7 +411,7 @@ plot_x_by_month <- function(df, variable, color){
     group_by_(variable, ~month)%>%
     summarise_(count = ~n())%>%
     ggplot(aes(x = month, y = count))+
-    geom_bar(stat = 'identity', fill = color, alpha = .4)+
+    geom_bar(stat = 'identity', fill = color, alpha = .5, color = 'black', size = .25)+
     facet_wrap(variable)+
     stat_smooth(method = 'auto', size = .7, alpha = .4, fill = "grey", colour = "red2")+
     ggtitle("Monthly Crime Counts")+
@@ -458,6 +457,8 @@ burglary_dow <- plot_x_by_day_of_week(crime_filter('burglary'), ~crime_type, "pu
 burglary_month <- plot_x_by_month(crime_filter('burglary'), ~crime_type, "purple4")+
   ggtitle("")+
   labs(y = "")
+
+
 
 grid.arrange(dui_hour, dui_dow, dui_month,
              robbery_hour, robbery_dow, robbery_month,
@@ -660,53 +661,55 @@ probably be improved even more.
 
 ```{r monthly_forecast_ari+reg, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
 #Monthly Forecasting
-monthly_sums <- full_crime%>%
-  filter(year >= 2006)%>%
-  group_by(year, month)%>%
-  summarise(count = n())%>%
-  mutate(is_jan = ifelse(month == 1, 1, 0), is_jul = ifelse(month == 7, 1, 0),
-         is_aug = ifelse(month == 8, 1, 0), is_dec = ifelse(month == 12, 1, 0))
-
-
-# Creating time series and splitting into train and test sets
-monthly_ts <- ts(monthly_sums[, 3:7], start = 2006, frequency = 12)
-monthly_train <- window(monthly_ts, start = c(2006, 1), end = c(2015, 10))
-monthly_test <- window(monthly_ts, start = c(2015,11), end = c(2016, 4))
-
-
-# model fit and forecast
-ari_fit_with2Reg <- auto.arima(monthly_train[,1], seasonal = TRUE, xreg = monthly_train[, 2:5])
-
-plot(forecast(ari_fit_with2Reg, xreg = monthly_test[, 2:5], h = 6), monthly_test[, 1], main = "Monthly Crime Forecast with ARIMA + Regressors")
-lines(monthly_test[, 1], col = 'red')
-legend("topright", lty = 1, col = c('blue', 'red'),
-       legend = c("ARIMA + Regressors", "Actual Values for 2016"))
-
-m_ariReg_acc <- accuracy(forecast(ari_fit_with2Reg, xreg = monthly_test[,2:5]), monthly_test)
-
-monthly_acc_df <- data.frame(RMSE = c(m_mean_acc[2, 2], m_ari_acc[2, 2], m_ariReg_acc[2, 2]),
-                             
-                             MAPE = c(m_mean_acc[2, 5], m_ari_acc[2, 5], m_ariReg_acc[2, 5]),
-                     row.names = c("Mean", "ARIMA", "ARIMA + Reg"))
-monthly_acc_df
+# monthly_sums <- full_crime%>%
+#   filter(year >= 2006)%>%
+#   group_by(year, month)%>%
+#   summarise(count = n())%>%
+#   mutate(is_jan = ifelse(month == 1, 1, 0), is_jul = ifelse(month == 7, 1, 0),
+#          is_aug = ifelse(month == 8, 1, 0), is_dec = ifelse(month == 12, 1, 0))
+# 
+# 
+# # Creating time series and splitting into train and test sets
+# monthly_ts <- ts(monthly_sums[, 3:7], start = 2006, frequency = 12)
+# monthly_train <- window(monthly_ts, start = c(2006, 1), end = c(2015, 10))
+# monthly_test <- window(monthly_ts, start = c(2015,11), end = c(2016, 4))
+# 
+# 
+# # model fit and forecast
+# ari_fit_with2Reg <- auto.arima(monthly_train[,1], seasonal = TRUE, xreg = monthly_train[, 2:5])
+# 
+# plot(forecast(ari_fit_with2Reg, xreg = monthly_test[, 2:5], h = 6), monthly_test[, 1], main = "Monthly Crime Forecast with ARIMA + Regressors")
+# lines(monthly_test[, 1], col = 'red')
+# legend("topright", lty = 1, col = c('blue', 'red'),
+#        legend = c("ARIMA + Regressors", "Actual Values for 2016"))
+# 
+# m_ariReg_acc <- accuracy(forecast(ari_fit_with2Reg, xreg = monthly_test[,2:5]), monthly_test)
+# 
+# monthly_acc_df <- data.frame(RMSE = c(m_mean_acc[2, 2], m_ari_acc[2, 2], m_ariReg_acc[2, 2]),
+#                              
+#                              MAPE = c(m_mean_acc[2, 5], m_ari_acc[2, 5], m_ariReg_acc[2, 5]),
+#                      row.names = c("Mean", "ARIMA", "ARIMA + Reg"))
+# monthly_acc_df
 
 ```
 
 ```{r monthly_forecast_decline_calc, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
-monthly_train_12 <- window(monthly_ts, start = c(2006, 1), end = c(2015, 4))
-monthly_test_12 <- window(monthly_ts, start = c(2015,5), end = c(2016, 4))
+# monthly_train_12 <- window(monthly_ts, start = c(2006, 1), end = c(2015, 4))
+# monthly_test_12 <- window(monthly_ts, start = c(2015,5), end = c(2016, 4))
+# 
+# # model fit and forecast
+# ari_fit_with2Reg_12 <- auto.arima(monthly_train_12[,1], seasonal = TRUE, xreg = monthly_train_12[, 2:5])
+# m_ariReg_acc_12 <- accuracy(forecast(ari_fit_with2Reg_12, xreg = monthly_test_12[,2:5]), monthly_test_12)
 
-# model fit and forecast
-ari_fit_with2Reg_12 <- auto.arima(monthly_train_12[,1], seasonal = TRUE, xreg = monthly_train_12[, 2:5])
-m_ariReg_acc_12 <- accuracy(forecast(ari_fit_with2Reg_12, xreg = monthly_test_12[,2:5]), monthly_test_12)
 
+# So with some, relatively, simple forecasting methods we can provide
+# moderately accurate numbers for the number of crimes that will occur per month. These results
+# will, obviously, get less accurate as our forecasting window gets further out, but that is
+# the nature of forecasting. Just shifting the forecast period from 6 months to 12 months
+# results in a rise in MAPE from `r round(m_ariReg_acc[2, 5], 1)`% to `r round(m_ariReg_acc_12[2, 5], 1)`%
+# with our best ARIMA + regressors model.
 ```
-So with some, relatively, simple forecasting methods we can provide
-moderately accurate numbers for the number of crimes that will occur per month. These results
-will, obviously, get less accurate as our forecasting window gets further out, but that is
-the nature of forecasting. Just shifting the forecast period from 6 months to 12 months
-results in a rise in MAPE from `r round(m_ariReg_acc[2, 5], 1)`% to `r round(m_ariReg_acc_12[2, 5], 1)`%
-with our best ARIMA + regressors model.
+
 
 ## Daily Forecasts
 
@@ -725,7 +728,7 @@ daily_sums <- full_crime%>%
 
 #creates daily time series with multiple periods; then creates train/test split
 daily_ts <- msts(daily_sums$count, seasonal.periods = c(7))
-daily_train <- window(daily_ts, start = 1, end = 522.6)#the precise week number coinciding with end of 2015
+daily_train <- window(daily_ts, start = c(2007,1), end = 522.6)#the precise week number coinciding with end of 2015
 daily_test <- window(daily_ts, start = 522.7)#week number coinciding with beginning of 2016
 
 # Creating baseline models and assessing accuracy
@@ -747,18 +750,20 @@ legend("topright", lty = c(1,1, 1), col = c(4, 2, 3),
        legend = c("Mean Method", "Seasonal Naive", "Drift Method"))
 
 d_acc_df <- data.frame(RMSE = c(d_mean_acc[2, 2], d_snaive_acc[2, 2], d_drift_acc[2, 2]),
-                     MAPE = c(d_mean_acc[2, 5], d_snaive_acc[2, 5], d_drift_acc[2, 5]),
-                     row.names = c("Mean", "Seasonal Naive", "Drift"))
+                      MAPE = c(d_mean_acc[2, 5], d_snaive_acc[2, 5], d_drift_acc[2, 5]),
+                      row.names = c("Mean", "Seasonal Naive", "Drift"))
 d_acc_df
+
+# The above plot shows daily crime counts for the end of 2014 through about May of 2016.
+# Once again, the naive forecasts are pretty poor, although this time the drift model performs
+# best. Note that while the naive baseline for monthly counts had a MAPE below 5%, our daily
+# baseline is double that at `r round(d_drift_acc[2, 5], 1)`%. We are looking
+# at a much more uncertain forecast, but that should not be surprising. Intuitively, we should
+# expect more randomness in a daily measure. Aggregating over a longer period of time, that randomness
+# becomes masked.
 ```
 
-The above plot shows daily crime counts for the end of 2014 through about May of 2016.
-Once again, the naive forecasts are pretty poor, although this time the drift model performs
-best. Note that while the naive baseline for monthly counts had a MAPE below 5%, our daily 
-baseline is double that at `r round(d_drift_acc[2, 5], 1)`%. We are looking
-at a much more uncertain forecast, but that should not be surprising. Intuitively, we should
-expect more randomness in a daily measure. Aggregating over a longer period of time, that randomness 
-becomes masked. 
+
 
 ### Decomposition, TBATS and ARIMA Models
 
@@ -787,52 +792,52 @@ Below are the forecast plots for the 3 models forecasting the first 4 months of 
 
 ```{r daily_forecasts_adv, echo = FALSE, cache = TRUE, out.width = '1100px', warning = FALSE, message = FALSE}
 ###################################################################################
-# Time Series Decomp Forecast
-d_decomp <- stl(daily_train, s.window = 365)
-
-decomp_fc <- forecast(d_decomp, h = 18)
-d_decomp_acc <- accuracy(decomp_fc, daily_test)
-plot(decomp_fc, main = "Forecasts for Daily Crime Counts using Decomposition", xlim = c(468, 523),
-     xlab = "Weeks since beginning of 2006")
-lines(daily_test, col = 'red')
-legend("topright", lty = 1, col = c('blue', 'red'),
-       legend = c("Decomposition", "Actual Values"))
+# # Time Series Decomp Forecast
+# d_decomp <- stl(daily_train, s.window = 365)
+#
+# decomp_fc <- forecast(d_decomp, h = 18)
+# d_decomp_acc <- accuracy(decomp_fc, daily_test)
+# plot(decomp_fc, main = "Forecasts for Daily Crime Counts using Decomposition", xlim = c(468, 523),
+#      xlab = "Weeks since beginning of 2006")
+# lines(daily_test, col = 'red')
+# legend("topright", lty = 1, col = c('blue', 'red'),
+#        legend = c("Decomposition", "Actual Values"))
 
 ####################################################################################
 # Tbat Forecast
-tbat_fit <- tbats(daily_train)
-tbat_fc <- forecast(tbat_fit, h = 18)
-plot(tbat_fc, main = "Forecast for Daily Crime Counts using Tbats", xlim = c(468, 523),
-     xlab = "Weeks since beginning of 2006")
-lines(daily_test, col = 'red')
-legend("topright", lty = 1, col = c('blue', 'red'),
-       legend = c("TBATS", "Actual Values"))
-
-d_tbats_acc <- accuracy(tbat_fc, daily_test)
-
-
-# arima with fourier terms to model longer seasonality
-fit <- auto.arima(daily_train, seasonal = FALSE, xreg = cbind(fourier(ts(daily_train, frequency = 30),K = 7),
-                                                              fourier(ts(daily_train, frequency = 365), K = 7),
-                                                                  fourier(daily_train, K = 3)))
-fit_f <- forecast(fit, xreg = cbind(fourier(ts(daily_train, frequency = 30), K = 7, 18),
-                                    fourier(ts(daily_train, frequency = 365), K = 7, 18),
-                                    fourier(daily_train, K = 3, 18)), h = 18)
-plot(fit_f, main = "Forecast for Daily Crime Counts using ARIMA + Fourier Terms", xlim = c(468, 523),
-     xlab = "Weeks since beginning of 2006")
-lines(daily_test, col = 'red')
-legend("topright", lty = 1, col = c('blue', 'red'),
-       legend = c("ARIMA + Fourier Terms", "Actual Values"))
-d_ari_acc <- accuracy(fit_f, daily_test)
-
-
-daily_acc_df <- data.frame(RMSE = c(d_mean_acc[2, 2], d_snaive_acc[2, 2], d_drift_acc[2, 2], 
-                              d_decomp_acc[2, 2], d_tbats_acc[2, 2], d_ari_acc[2, 2]),
-                           MAPE = c(d_mean_acc[2, 5], d_snaive_acc[2, 5], d_drift_acc[2, 5], 
-                              d_decomp_acc[2, 5], d_tbats_acc[2, 5], d_ari_acc[2, 5]),
-                     row.names = c("Mean", "Seasonal Naive", "Drift", "Decomposition",
-                                   "TBATS", "ARIMA + Fourier Terms"))
-daily_acc_df
+# tbat_fit <- tbats(daily_train)
+# tbat_fc <- forecast(tbat_fit, h = 18)
+# plot(tbat_fc, main = "Forecast for Daily Crime Counts using Tbats", xlim = c(468, 523),
+#      xlab = "Weeks since beginning of 2006")
+# lines(daily_test, col = 'red')
+# legend("topright", lty = 1, col = c('blue', 'red'),
+#        legend = c("TBATS", "Actual Values"))
+#
+# d_tbats_acc <- accuracy(tbat_fc, daily_test)
+#
+#
+# # arima with fourier terms to model longer seasonality
+# fit <- auto.arima(daily_train, seasonal = FALSE, xreg = cbind(fourier(ts(daily_train, frequency = 30),K = 7),
+#                                                               fourier(ts(daily_train, frequency = 365), K = 7),
+#                                                                   fourier(daily_train, K = 3)))
+# fit_f <- forecast(fit, xreg = cbind(fourier(ts(daily_train, frequency = 30), K = 7, 18),
+#                                     fourier(ts(daily_train, frequency = 365), K = 7, 18),
+#                                     fourier(daily_train, K = 3, 18)), h = 18)
+# plot(fit_f, main = "Forecast for Daily Crime Counts using ARIMA + Fourier Terms", xlim = c(468, 523),
+#      xlab = "Weeks since beginning of 2006")
+# lines(daily_test, col = 'red')
+# legend("topright", lty = 1, col = c('blue', 'red'),
+#        legend = c("ARIMA + Fourier Terms", "Actual Values"))
+# d_ari_acc <- accuracy(fit_f, daily_test)
+#
+#
+# daily_acc_df <- data.frame(RMSE = c(d_mean_acc[2, 2], d_snaive_acc[2, 2], d_drift_acc[2, 2],
+#                               d_decomp_acc[2, 2], d_tbats_acc[2, 2], d_ari_acc[2, 2]),
+#                            MAPE = c(d_mean_acc[2, 5], d_snaive_acc[2, 5], d_drift_acc[2, 5],
+#                               d_decomp_acc[2, 5], d_tbats_acc[2, 5], d_ari_acc[2, 5]),
+#                      row.names = c("Mean", "Seasonal Naive", "Drift", "Decomposition",
+#                                    "TBATS", "ARIMA + Fourier Terms"))
+# daily_acc_df
 
 # #arima with covariates: scores ~35 RMSE
 
@@ -844,13 +849,13 @@ daily_acc_df
 #   filter(date <= '2016-04-30')%>%
 #   mutate(is_weekday = ifelse(weekday == 'Weekday', 1, 0), is_summer = ifelse(season == 'Summer', 1, 0),
 #          is_winter = ifelse(season == 'Winter', 1, 0))
-# 
-# 
+#
+#
 # #creates daily time series with multiple periods; then creates train/test split
 # daily_ts <- msts(daily_sums[,4:7], seasonal.periods = c(7))
 # daily_train <- window(daily_ts, start = 1, end = 522.6)
 # daily_test <- window(daily_ts, start = 522.7)
-# 
+#
 # fit <- auto.arima(daily_train[, 1], xreg = daily_train[,2:4])
 # fit_f <- forecast(fit, xreg = daily_test[, 2:4], h = 18)
 # plot(fit_f)

@@ -5,7 +5,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = FALSE)
 library(dplyr)
 library(ggplot2)
 library(readr)
@@ -167,7 +167,7 @@ After all this, I am left with the chaotic looking time series below.  Just from
 it's immediately obvious there is some sort of parabolic looking seasonal pattern within each year.
 Additionally, it appears that there is a slight upward trend to the data--especially seen in 2016.
 
-```{r basic_timeseries, dependson= 'load_data', echo = FALSE, fig.align = 'center', fig.cap = 'Fig.1'}
+```{r basictimeseries, dependson= 'load_data', echo = FALSE, fig.align = 'center',  fig.cap = 'Fig.1'}
 autoplot(theft_train)+
   xlab("")+
   ylab("Monthly Thefts")+
@@ -555,4 +555,5 @@ predict crimes.  While significantly more advanced, this approach has the tremen
 spatial *and* temporal data.  In terms of useful predictive forecasts, this is a clear step up. Now it's just a matter of learning how
 to implement it.
 
+As usual, all code for this report can be found [here](https://github.com/Grollus/LouisvilleCrime/blob/master/Forecasting_Weekly_Thefts.Rmd).
 Until next time, happy forecasting.
